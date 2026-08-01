@@ -355,7 +355,11 @@ class Connection(abc.ABC):
                 except asyncio.CancelledError:
                     break
                 except (IOError, asyncio.IncompleteReadError) as e:
-                    self._log.warning("Server closed the connection: %s", e)
+                    # Telegram closes idle sockets between packets all the time,
+                    # and the sender reconnects transparently, so this is not a
+                    # warning on its own. `MTProtoSender` logs the outcome of
+                    # the reconnection, which is the part worth warning about
+                    self._log.info("Server closed the connection: %s", e)
                     await self._recv_queue.put((None, e))
                     await self.disconnect()
                 except InvalidChecksumError as e:
