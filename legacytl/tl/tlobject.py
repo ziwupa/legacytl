@@ -12,7 +12,14 @@ _EPOCH_NAIVE_LOCAL = datetime(*time.localtime(0)[:6])
 _EPOCH = _EPOCH_NAIVE.replace(tzinfo=timezone.utc)
 
 
-FORBIDDEN_CONSTRUCTORS = {
+# The core set is a frozenset on purpose: a module loaded into the same process
+# used to be able to disarm every layer of the protection with a single
+# `FORBIDDEN_CONSTRUCTORS.clear()`, because `_get_forbid_constructors()` handed
+# out the live mutable object that both the object-tree walk and the serialized
+# byte scan read from. A frozenset raises on `.clear()`/`.discard()`, so the
+# baseline can no longer be emptied in place. Opt-in additions live in a separate
+# mutable set so the baseline stays intact.
+_CORE_FORBIDDEN_CONSTRUCTORS = frozenset({
     0xA2C0CF74,  # account.DeleteAccount
     0x449E0B51,  # account.GetTmpPassword
     0x9308CE1B,  # account.ResetPassword
@@ -23,7 +30,16 @@ FORBIDDEN_CONSTRUCTORS = {
     0xA929597A,  # account.GetAuthorizationForm
     0xE320C158,  # account.GetAuthorizations
     0xF8654027,  # contacts.ExportContactToken
-}
+    0xE894AD4D,  # auth.AcceptLoginToken — approving someone else's QR login hands
+    #              them a full session; the framework never calls it itself.
+})
+
+# Opt-in extra constructors (e.g. added from the APILimiter module's config).
+_EXTRA_FORBIDDEN_CONSTRUCTORS = set()
+
+# Back-compat alias. It now points at the immutable core, so old code that reads
+# it keeps working while `.clear()`/`.discard()` no longer disarm anything.
+FORBIDDEN_CONSTRUCTORS = _CORE_FORBIDDEN_CONSTRUCTORS
 
 _VECTOR_CONSTRUCTOR_ID = 0x1CB5C415
 _USERS_GET_USERS_CONSTRUCTOR_ID = 0x0D91A548
@@ -41,7 +57,13 @@ RESTRICT_IDS = [777000, 489000, 4245000]
 
 
 def _get_forbid_constructors():
-    return FORBIDDEN_CONSTRUCTORS
+    return _CORE_FORBIDDEN_CONSTRUCTORS | _EXTRA_FORBIDDEN_CONSTRUCTORS
+
+
+def _forbid_extra(ids):
+    """Add opt-in constructor ids to the forbidden set without touching the
+    immutable core. Falsy ids (e.g. an unresolved name) are ignored."""
+    _EXTRA_FORBIDDEN_CONSTRUCTORS.update(i for i in ids if i)
 
 
 def _bind_scam_detection_error(error_cls):
