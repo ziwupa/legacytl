@@ -825,11 +825,16 @@ class Message(ChatGetter, SenderGetter, TLObject):
                 await self.get_input_chat() if self.is_channel else None,
                 ids=types.InputMessageReplyTo(self.id),
             )
-            if not self._reply_message:
+            if not self._reply_message and self.reply_to.reply_to_msg_id is not None:
                 # ...unless the current message got deleted.
                 #
                 # If that's the case, give it a second chance accessing
                 # directly by its ID.
+                #
+                # Guard against a missing reply_to_msg_id (replies to stories,
+                # cross-chat quotes, etc.): passing ids=None would make
+                # get_messages fall through to it.collect() and return a
+                # TotalList instead of a single Message or None.
                 self._reply_message = await self._client.get_messages(
                     self._input_chat if self.is_channel else None,
                     ids=self.reply_to.reply_to_msg_id,
