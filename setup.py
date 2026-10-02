@@ -265,7 +265,7 @@ def main(argv):
             ],
             keywords="telegram api chat client library messaging mtproto",
             packages=find_packages(exclude=["legacytl_*", "tests*"]),
-            install_requires=["pyaes", "rsa", "bs4==0.0.2"],
+            install_requires=["pyaes", "rsa", "bs4==0.0.2", "cryptography"],
             extras_require={"cryptg": ["cryptg"]},
         )
 
