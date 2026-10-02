@@ -183,10 +183,12 @@ class MTProtoSender:
         all pending requests, and closes the send and receive loops.
         """
         if self._reconnect_task:
-            _ = self._reconnect_task.cancel()
+            task, self._reconnect_task = self._reconnect_task, None
+            if task and not task.done() and task is not asyncio.current_task():
+                task.cancel()
 
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._reconnect_task
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
 
         await self._disconnect()
 

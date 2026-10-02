@@ -62,16 +62,22 @@ class SQLiteSession(MemorySession):
             c.execute("select * from sessions")
             tuple_ = c.fetchone()
             if tuple_:
+                # Column order matches the CREATE TABLE statement below:
+                # dc_id, server_address, port, auth_key, takeout_id, tmp_auth_key
                 (
                     self._dc_id,
                     self._server_address,
                     self._port,
                     key,
-                    self._takeout_id,
+                    takeout_id,
                     tmp_key,
                 ) = tuple_
-                self._auth_key = AuthKey(data=key)
-                self._tmp_auth_key = AuthKey(data=tmp_key)
+                # Sanitize a poisoned takeout_id (must be an int or nothing).
+                self._takeout_id = (
+                    takeout_id if isinstance(takeout_id, int) else None
+                )
+                self._auth_key = AuthKey(data=key) if key else None
+                self._tmp_auth_key = AuthKey(data=tmp_key) if tmp_key else None
 
             c.close()
         else:
