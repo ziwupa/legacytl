@@ -362,6 +362,19 @@ class _IDsIter(RequestIter):
                 self.buffer.append(message)
 
 
+def _to_input_rich(rich):
+    """
+    Normalizes the ``rich`` shorthand into an :tl:`InputRichMessage`.
+
+    A plain string is taken as Markdown source; anything else is passed
+    through untouched, so :tl:`InputRichMessageHTML` and friends keep working.
+    """
+    if isinstance(rich, str):
+        return types.InputRichMessageMarkdown(markdown=rich)
+
+    return rich
+
+
 class MessageMethods:
 
     # region Public methods
@@ -675,6 +688,7 @@ class MessageMethods:
         nosound_video: bool = None,
         send_as: typing.Optional["hints.EntityLike"] = None,
         message_effect_id: typing.Optional[int] = None,
+        rich: typing.Union[str, types.TypeInputRichMessage] = None,
         noforwards: bool = None,
         update_stickersets_order: bool = None,
         allow_paid_floodskip: bool = None,
@@ -969,6 +983,7 @@ class MessageMethods:
                 quick_reply_shortcut=quick_reply_shortcut,
                 allow_paid_stars=allow_paid_stars,
                 suggested_post=suggested_post,
+                rich_message=_to_input_rich(rich) if rich is not None else None,
                 send_as=await self.get_input_entity(send_as) if send_as else None,
                 effect=message_effect_id,
             )
@@ -978,7 +993,7 @@ class MessageMethods:
                 message, formatting_entities = await self._parse_message_text(
                     message, parse_mode
                 )
-            if not message:
+            if not message and rich is None:
                 raise ValueError(
                     "The message cannot be empty unless a file is provided"
                 )
@@ -1004,6 +1019,7 @@ class MessageMethods:
                 quick_reply_shortcut=quick_reply_shortcut,
                 allow_paid_stars=allow_paid_stars,
                 suggested_post=suggested_post,
+                rich_message=_to_input_rich(rich) if rich is not None else None,
                 send_as=await self.get_input_entity(send_as) if send_as else None,
                 effect=message_effect_id,
             )
@@ -1232,7 +1248,8 @@ class MessageMethods:
         force_document: bool = False,
         buttons: typing.Optional["hints.MarkupLike"] = None,
         supports_streaming: bool = False,
-        schedule: "hints.DateLike" = None
+        schedule: "hints.DateLike" = None,
+        rich: typing.Union[str, types.TypeInputRichMessage] = None,
     ) -> "types.Message":
         """
         Edits the given message to change its text or media.
@@ -1375,6 +1392,7 @@ class MessageMethods:
                 entities=formatting_entities,
                 media=media,
                 reply_markup=self.build_reply_markup(buttons),
+                rich_message=_to_input_rich(rich) if rich is not None else None,
             )
             # Invoke `messages.editInlineBotMessage` from the right datacenter.
             # Otherwise, Telegram will error with `MESSAGE_ID_INVALID` and do nothing.
@@ -1399,6 +1417,7 @@ class MessageMethods:
             media=media,
             reply_markup=self.build_reply_markup(buttons),
             schedule_date=schedule,
+            rich_message=_to_input_rich(rich) if rich is not None else None,
         )
         msg = self._get_response_message(request, await self(request), entity)
         return msg
