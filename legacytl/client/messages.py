@@ -674,7 +674,14 @@ class MessageMethods:
         comment_to: "typing.Union[int, types.Message]" = None,
         nosound_video: bool = None,
         send_as: typing.Optional["hints.EntityLike"] = None,
-        message_effect_id: typing.Optional[int] = None
+        message_effect_id: typing.Optional[int] = None,
+        noforwards: bool = None,
+        update_stickersets_order: bool = None,
+        allow_paid_floodskip: bool = None,
+        schedule_repeat_period: typing.Optional[int] = None,
+        quick_reply_shortcut: "typing.Optional[types.TypeInputQuickReplyShortcut]" = None,
+        allow_paid_stars: typing.Optional[int] = None,
+        suggested_post: "typing.Optional[types.TypeSuggestedPost]" = None,
     ) -> "types.Message":
         """
         Sends a message to the specified user, chat or channel.
@@ -891,6 +898,13 @@ class MessageMethods:
                 nosound_video=nosound_video,
                 send_as=send_as,
                 message_effect_id=message_effect_id,
+                noforwards=noforwards,
+                update_stickersets_order=update_stickersets_order,
+                allow_paid_floodskip=allow_paid_floodskip,
+                schedule_repeat_period=schedule_repeat_period,
+                quick_reply_shortcut=quick_reply_shortcut,
+                allow_paid_stars=allow_paid_stars,
+                suggested_post=suggested_post,
             )
 
         entity = await self.get_input_entity(entity)
@@ -925,6 +939,13 @@ class MessageMethods:
                     invert_media=invert_media,  # skip merge
                     send_as=send_as,
                     message_effect_id=message_effect_id,
+                    noforwards=noforwards,
+                    update_stickersets_order=update_stickersets_order,
+                    allow_paid_floodskip=allow_paid_floodskip,
+                    schedule_repeat_period=schedule_repeat_period,
+                    quick_reply_shortcut=quick_reply_shortcut,
+                    allow_paid_stars=allow_paid_stars,
+                    suggested_post=suggested_post,
                 )
 
             request = functions.messages.SendMessageRequest(
@@ -941,6 +962,13 @@ class MessageMethods:
                 no_webpage=not isinstance(message.media, types.MessageMediaWebPage),
                 schedule_date=schedule,
                 invert_media=invert_media,  # skip merge
+                noforwards=noforwards,
+                update_stickersets_order=update_stickersets_order,
+                allow_paid_floodskip=allow_paid_floodskip,
+                schedule_repeat_period=schedule_repeat_period,
+                quick_reply_shortcut=quick_reply_shortcut,
+                allow_paid_stars=allow_paid_stars,
+                suggested_post=suggested_post,
                 send_as=await self.get_input_entity(send_as) if send_as else None,
                 effect=message_effect_id,
             )
@@ -969,6 +997,13 @@ class MessageMethods:
                 reply_markup=self.build_reply_markup(buttons),
                 schedule_date=schedule,
                 invert_media=invert_media,  # skip merge
+                noforwards=noforwards,
+                update_stickersets_order=update_stickersets_order,
+                allow_paid_floodskip=allow_paid_floodskip,
+                schedule_repeat_period=schedule_repeat_period,
+                quick_reply_shortcut=quick_reply_shortcut,
+                allow_paid_stars=allow_paid_stars,
+                suggested_post=suggested_post,
                 send_as=await self.get_input_entity(send_as) if send_as else None,
                 effect=message_effect_id,
             )
@@ -1006,6 +1041,10 @@ class MessageMethods:
         schedule: "hints.DateLike" = None,
         drop_author: bool = None,
         drop_media_captions: bool = None,
+        noforwards: bool = None,
+        allow_paid_floodskip: bool = None,
+        top_msg_id: typing.Optional[int] = None,
+        reply_to: "typing.Optional[hints.MessageIDLike]" = None,
     ) -> "typing.Sequence[types.Message]":
         """
         Forwards the given messages to the specified entity.
@@ -1161,6 +1200,14 @@ class MessageMethods:
                 schedule_date=schedule,
                 drop_author=drop_author,
                 drop_media_captions=drop_media_captions,
+                noforwards=noforwards,
+                allow_paid_floodskip=allow_paid_floodskip,
+                top_msg_id=top_msg_id,
+                reply_to=(
+                    None if reply_to is None
+                    else types.InputReplyToMessage(
+                        utils.get_message_id(reply_to), top_msg_id=top_msg_id)
+                ),
             )
             result = await self(req)
             sent.extend(self._get_response_message(req, result, entity))

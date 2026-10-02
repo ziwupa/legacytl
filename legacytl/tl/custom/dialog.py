@@ -104,7 +104,7 @@ class Dialog:
         self.is_group = isinstance(self.entity, (types.Chat, types.ChatForbidden)) or (
             isinstance(self.entity, types.Channel) and self.entity.megagroup
         )
-        self.is_channel = isinstance(self.entity, types.Channel)
+        self.is_channel = isinstance(self.entity, (types.Channel, types.Community))
         self.is_community = isinstance(self.entity, types.Community)
 
     async def send_message(self, *args, **kwargs):

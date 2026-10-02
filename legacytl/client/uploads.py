@@ -300,6 +300,14 @@ class UploadMethods:
         nosound_video: bool = None,
         send_as: typing.Optional["hints.EntityLike"] = None,
         message_effect_id: typing.Optional[int] = None,
+        invert_media: bool = None,
+        noforwards: bool = None,
+        update_stickersets_order: bool = None,
+        allow_paid_floodskip: bool = None,
+        schedule_repeat_period: typing.Optional[int] = None,
+        quick_reply_shortcut: "typing.Optional[types.TypeInputQuickReplyShortcut]" = None,
+        allow_paid_stars: typing.Optional[int] = None,
+        suggested_post: "typing.Optional[types.TypeSuggestedPost]" = None,
         **kwargs
     ) -> typing.Union[typing.List[typing.Any], typing.Any]:
         """
@@ -587,6 +595,12 @@ class UploadMethods:
         # First check if the user passed an iterable, in which case
         # we may want to send grouped.
         if utils.is_list_like(file):
+            if schedule_repeat_period is not None or suggested_post is not None:
+                # messages.sendMultiMedia has no such fields in this layer
+                raise ValueError(
+                    "schedule_repeat_period and suggested_post are not "
+                    "supported for albums"
+                )
             sent_count = 0
             used_callback = (
                 None
@@ -639,6 +653,12 @@ class UploadMethods:
                     ttl=ttl,
                     send_as=send_as,
                     message_effect_id=message_effect_id,
+                    invert_media=invert_media,
+                    noforwards=noforwards,
+                    update_stickersets_order=update_stickersets_order,
+                    allow_paid_floodskip=allow_paid_floodskip,
+                    quick_reply_shortcut=quick_reply_shortcut,
+                    allow_paid_stars=allow_paid_stars,
                 )
                 file = file[10:]
                 captions = captions[10:]
@@ -688,6 +708,14 @@ class UploadMethods:
             background=background,
             send_as=await self.get_input_entity(send_as) if send_as else None,
             effect=message_effect_id,
+            invert_media=invert_media,
+            noforwards=noforwards,
+            update_stickersets_order=update_stickersets_order,
+            allow_paid_floodskip=allow_paid_floodskip,
+            schedule_repeat_period=schedule_repeat_period,
+            quick_reply_shortcut=quick_reply_shortcut,
+            allow_paid_stars=allow_paid_stars,
+            suggested_post=suggested_post,
         )
         return self._get_response_message(request, await self(request), entity)
 
@@ -710,6 +738,12 @@ class UploadMethods:
         spoiler=False,
         send_as: typing.Optional["hints.EntityLike"] = None,
         message_effect_id: typing.Optional[int] = None,
+        invert_media=None,
+        noforwards=None,
+        update_stickersets_order=None,
+        allow_paid_floodskip=None,
+        quick_reply_shortcut=None,
+        allow_paid_stars=None,
     ):
         """Specialized version of .send_file for albums"""
         # ── session-file guard for every file in the album ─────────────────
@@ -817,6 +851,12 @@ class UploadMethods:
             background=background,
             send_as=await self.get_input_entity(send_as) if send_as else None,
             effect=message_effect_id,
+            invert_media=invert_media,
+            noforwards=noforwards,
+            update_stickersets_order=update_stickersets_order,
+            allow_paid_floodskip=allow_paid_floodskip,
+            quick_reply_shortcut=quick_reply_shortcut,
+            allow_paid_stars=allow_paid_stars,
         )
         result = await self(request)
 
