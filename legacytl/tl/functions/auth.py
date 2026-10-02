@@ -332,6 +332,37 @@ class ExportLoginTokenRequest(TLRequest):
         return cls(api_id=_api_id, api_hash=_api_hash, except_ids=_except_ids)
 
 
+class FinishFirebasePnvLoginRequest(TLRequest):
+    CONSTRUCTOR_ID = 0x2c85094c
+    SUBCLASS_OF_ID = 0xb9e04e39
+
+    def __init__(self, google_token: str):
+        """
+        :returns auth.Authorization: Instance of either Authorization, AuthorizationSignUpRequired.
+        """
+        self.google_token = google_token
+
+        super().__init__()
+
+    def to_dict(self):
+        return {
+            '_': 'FinishFirebasePnvLoginRequest',
+            'google_token': self.google_token
+        }
+
+    def _bytes(self):
+        self._assert_no_forbidden_constructors()
+        return b''.join((
+            b'L\t\x85,',
+            self.serialize_bytes(self.google_token),
+        ))
+
+    @classmethod
+    def from_reader(cls, reader):
+        _google_token = reader.tgread_string()
+        return cls(google_token=_google_token)
+
+
 class FinishPasskeyLoginRequest(TLRequest):
     CONSTRUCTOR_ID = 0x9857ad07
     SUBCLASS_OF_ID = 0xb9e04e39
@@ -379,6 +410,47 @@ class FinishPasskeyLoginRequest(TLRequest):
         else:
             _from_auth_key_id = None
         return cls(credential=_credential, from_dc_id=_from_dc_id, from_auth_key_id=_from_auth_key_id)
+
+
+class FirebasePnvSignUpRequest(TLRequest):
+    CONSTRUCTOR_ID = 0x783f6b56
+    SUBCLASS_OF_ID = 0xb9e04e39
+
+    def __init__(self, first_name: str, last_name: str, no_joined_notifications: Optional[bool]=None):
+        """
+        :returns auth.Authorization: Instance of either Authorization, AuthorizationSignUpRequired.
+        """
+        self.first_name = first_name
+        self.last_name = last_name
+        self.no_joined_notifications = no_joined_notifications
+
+        super().__init__()
+
+    def to_dict(self):
+        return {
+            '_': 'FirebasePnvSignUpRequest',
+            'first_name': self.first_name,
+            'last_name': self.last_name,
+            'no_joined_notifications': self.no_joined_notifications
+        }
+
+    def _bytes(self):
+        self._assert_no_forbidden_constructors()
+        return b''.join((
+            b'Vk?x',
+            struct.pack('<I', (0 if self.no_joined_notifications is None or self.no_joined_notifications is False else 1)),
+            self.serialize_bytes(self.first_name),
+            self.serialize_bytes(self.last_name),
+        ))
+
+    @classmethod
+    def from_reader(cls, reader):
+        flags = reader.read_int()
+
+        _no_joined_notifications = bool(flags & 1)
+        _first_name = reader.tgread_string()
+        _last_name = reader.tgread_string()
+        return cls(first_name=_first_name, last_name=_last_name, no_joined_notifications=_no_joined_notifications)
 
 
 class ImportAuthorizationRequest(TLRequest):
@@ -527,6 +599,41 @@ class ImportWebTokenAuthorizationRequest(TLRequest):
         _api_hash = reader.tgread_string()
         _web_auth_token = reader.tgread_string()
         return cls(api_id=_api_id, api_hash=_api_hash, web_auth_token=_web_auth_token)
+
+
+class InitFirebasePnvLoginRequest(TLRequest):
+    CONSTRUCTOR_ID = 0x777df37a
+    SUBCLASS_OF_ID = 0xfa6422a7
+
+    def __init__(self, api_id: int, api_hash: str):
+        """
+        :returns auth.FirebasePnvIntent: Instance of FirebasePnvIntent.
+        """
+        self.api_id = api_id
+        self.api_hash = api_hash
+
+        super().__init__()
+
+    def to_dict(self):
+        return {
+            '_': 'InitFirebasePnvLoginRequest',
+            'api_id': self.api_id,
+            'api_hash': self.api_hash
+        }
+
+    def _bytes(self):
+        self._assert_no_forbidden_constructors()
+        return b''.join((
+            b'z\xf3}w',
+            struct.pack('<i', self.api_id),
+            self.serialize_bytes(self.api_hash),
+        ))
+
+    @classmethod
+    def from_reader(cls, reader):
+        _api_id = reader.read_int()
+        _api_hash = reader.tgread_string()
+        return cls(api_id=_api_id, api_hash=_api_hash)
 
 
 class InitPasskeyLoginRequest(TLRequest):

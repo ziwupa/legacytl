@@ -242,6 +242,41 @@ class ExportedAuthorization(TLObject):
         return cls(id=_id, bytes=_bytes)
 
 
+class FirebasePnvIntent(TLObject):
+    CONSTRUCTOR_ID = 0xdf5ac00c
+    SUBCLASS_OF_ID = 0xfa6422a7
+
+    def __init__(self, nonce: str, digital_credential_payload: str):
+        """
+        Constructor for auth.FirebasePnvIntent: Instance of FirebasePnvIntent.
+        """
+        self.nonce = nonce
+        self.digital_credential_payload = digital_credential_payload
+
+        super().__init__()
+
+    def to_dict(self):
+        return {
+            '_': 'FirebasePnvIntent',
+            'nonce': self.nonce,
+            'digital_credential_payload': self.digital_credential_payload
+        }
+
+    def _bytes(self):
+        self._assert_no_forbidden_constructors()
+        return b''.join((
+            b'\x0c\xc0Z\xdf',
+            self.serialize_bytes(self.nonce),
+            self.serialize_bytes(self.digital_credential_payload),
+        ))
+
+    @classmethod
+    def from_reader(cls, reader):
+        _nonce = reader.tgread_string()
+        _digital_credential_payload = reader.tgread_string()
+        return cls(nonce=_nonce, digital_credential_payload=_digital_credential_payload)
+
+
 class LoggedOut(TLObject):
     CONSTRUCTOR_ID = 0xc3a2835f
     SUBCLASS_OF_ID = 0xa804315

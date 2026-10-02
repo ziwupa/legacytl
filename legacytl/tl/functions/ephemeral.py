@@ -10,16 +10,102 @@ if TYPE_CHECKING:
 
 
 
-class DeleteMessageRequest(TLRequest):
-    CONSTRUCTOR_ID = 0xa3c0d511
+class DeleteAllWelcomeMessagesRequest(TLRequest):
+    CONSTRUCTOR_ID = 0x734f9721
     SUBCLASS_OF_ID = 0xf5b399ac
 
-    def __init__(self, peer: 'TypeInputPeer', receiver_id: 'TypeInputUser', id: int):
+    def __init__(self, peer: 'TypeInputPeer'):
         """
         :returns Bool: This type has no constructors.
         """
         self.peer = peer
+
+        super().__init__()
+
+    async def resolve(self, client, utils):
+        self.peer = utils.get_input_peer(await client.get_input_entity(self.peer))
+        self._check_peer(self.peer)
+
+    def to_dict(self):
+        return {
+            '_': 'DeleteAllWelcomeMessagesRequest',
+            'peer': self.peer.to_dict() if isinstance(self.peer, TLObject) else self.peer
+        }
+
+    def _bytes(self):
+        self._assert_no_forbidden_constructors()
+        return b''.join((
+            b'!\x97Os',
+            self.peer._bytes(),
+        ))
+
+    @classmethod
+    def from_reader(cls, reader):
+        _peer = reader.tgread_object()
+        return cls(peer=_peer)
+
+
+class DeleteMessageRequest(TLRequest):
+    CONSTRUCTOR_ID = 0x92f6e797
+    SUBCLASS_OF_ID = 0xf5b399ac
+
+    def __init__(self, receiver_id: 'TypeInputUser', id: int, peer: Optional['TypeInputPeer']=None):
+        """
+        :returns Bool: This type has no constructors.
+        """
         self.receiver_id = receiver_id
+        self.id = id
+        self.peer = peer
+
+        super().__init__()
+
+    async def resolve(self, client, utils):
+        self.receiver_id = utils.get_input_user(await client.get_input_entity(self.receiver_id))
+        self._check_peer(self.receiver_id)
+        if self.peer:
+            self.peer = utils.get_input_peer(await client.get_input_entity(self.peer))
+            self._check_peer(self.peer)
+
+    def to_dict(self):
+        return {
+            '_': 'DeleteMessageRequest',
+            'receiver_id': self.receiver_id.to_dict() if isinstance(self.receiver_id, TLObject) else self.receiver_id,
+            'id': self.id,
+            'peer': self.peer.to_dict() if isinstance(self.peer, TLObject) else self.peer
+        }
+
+    def _bytes(self):
+        self._assert_no_forbidden_constructors()
+        return b''.join((
+            b'\x97\xe7\xf6\x92',
+            struct.pack('<I', (0 if self.peer is None or self.peer is False else 1)),
+            b'' if self.peer is None or self.peer is False else (self.peer._bytes()),
+            self.receiver_id._bytes(),
+            struct.pack('<i', self.id),
+        ))
+
+    @classmethod
+    def from_reader(cls, reader):
+        flags = reader.read_int()
+
+        if flags & 1:
+            _peer = reader.tgread_object()
+        else:
+            _peer = None
+        _receiver_id = reader.tgread_object()
+        _id = reader.read_int()
+        return cls(receiver_id=_receiver_id, id=_id, peer=_peer)
+
+
+class DeleteWelcomeMessageRequest(TLRequest):
+    CONSTRUCTOR_ID = 0xe882a9e1
+    SUBCLASS_OF_ID = 0xf5b399ac
+
+    def __init__(self, peer: 'TypeInputPeer', id: int):
+        """
+        :returns Bool: This type has no constructors.
+        """
+        self.peer = peer
         self.id = id
 
         super().__init__()
@@ -27,32 +113,129 @@ class DeleteMessageRequest(TLRequest):
     async def resolve(self, client, utils):
         self.peer = utils.get_input_peer(await client.get_input_entity(self.peer))
         self._check_peer(self.peer)
-        self.receiver_id = utils.get_input_user(await client.get_input_entity(self.receiver_id))
-        self._check_peer(self.receiver_id)
 
     def to_dict(self):
         return {
-            '_': 'DeleteMessageRequest',
+            '_': 'DeleteWelcomeMessageRequest',
             'peer': self.peer.to_dict() if isinstance(self.peer, TLObject) else self.peer,
-            'receiver_id': self.receiver_id.to_dict() if isinstance(self.receiver_id, TLObject) else self.receiver_id,
             'id': self.id
         }
 
     def _bytes(self):
         self._assert_no_forbidden_constructors()
         return b''.join((
-            b'\x11\xd5\xc0\xa3',
+            b'\xe1\xa9\x82\xe8',
             self.peer._bytes(),
-            self.receiver_id._bytes(),
             struct.pack('<i', self.id),
         ))
 
     @classmethod
     def from_reader(cls, reader):
         _peer = reader.tgread_object()
+        _id = reader.read_int()
+        return cls(peer=_peer, id=_id)
+
+
+class EditMessageRequest(TLRequest):
+    CONSTRUCTOR_ID = 0xcf9c725b
+    SUBCLASS_OF_ID = 0x8af52aac
+
+    def __init__(self, receiver_id: 'TypeInputUser', id: int, invert_media: Optional[bool]=None, welcome: Optional[bool]=None, peer: Optional['TypeInputPeer']=None, message: Optional[str]=None, media: Optional['TypeInputMedia']=None, entities: Optional[List['TypeMessageEntity']]=None, reply_markup: Optional['TypeReplyMarkup']=None, rich_message: Optional['TypeInputRichMessage']=None):
+        """
+        :returns Updates: Instance of either UpdatesTooLong, UpdateShortMessage, UpdateShortChatMessage, UpdateShort, UpdatesCombined, Updates, UpdateShortSentMessage.
+        """
+        self.receiver_id = receiver_id
+        self.id = id
+        self.invert_media = invert_media
+        self.welcome = welcome
+        self.peer = peer
+        self.message = message
+        self.media = media
+        self.entities = entities
+        self.reply_markup = reply_markup
+        self.rich_message = rich_message
+
+        super().__init__()
+
+    async def resolve(self, client, utils):
+        self.receiver_id = utils.get_input_user(await client.get_input_entity(self.receiver_id))
+        self._check_peer(self.receiver_id)
+        if self.peer:
+            self.peer = utils.get_input_peer(await client.get_input_entity(self.peer))
+            self._check_peer(self.peer)
+
+        if self.media:
+            self.media = utils.get_input_media(self.media)
+            self._check_peer(self.media)
+
+    def to_dict(self):
+        return {
+            '_': 'EditMessageRequest',
+            'receiver_id': self.receiver_id.to_dict() if isinstance(self.receiver_id, TLObject) else self.receiver_id,
+            'id': self.id,
+            'invert_media': self.invert_media,
+            'welcome': self.welcome,
+            'peer': self.peer.to_dict() if isinstance(self.peer, TLObject) else self.peer,
+            'message': self.message,
+            'media': self.media.to_dict() if isinstance(self.media, TLObject) else self.media,
+            'entities': [] if self.entities is None else [x.to_dict() if isinstance(x, TLObject) else x for x in self.entities],
+            'reply_markup': self.reply_markup.to_dict() if isinstance(self.reply_markup, TLObject) else self.reply_markup,
+            'rich_message': self.rich_message.to_dict() if isinstance(self.rich_message, TLObject) else self.rich_message
+        }
+
+    def _bytes(self):
+        self._assert_no_forbidden_constructors()
+        return b''.join((
+            b'[r\x9c\xcf',
+            struct.pack('<I', (0 if self.invert_media is None or self.invert_media is False else 32) | (0 if self.welcome is None or self.welcome is False else 64) | (0 if self.peer is None or self.peer is False else 128) | (0 if self.message is None or self.message is False else 1) | (0 if self.media is None or self.media is False else 8) | (0 if self.entities is None or self.entities is False else 2) | (0 if self.reply_markup is None or self.reply_markup is False else 4) | (0 if self.rich_message is None or self.rich_message is False else 16)),
+            b'' if self.peer is None or self.peer is False else (self.peer._bytes()),
+            self.receiver_id._bytes(),
+            struct.pack('<i', self.id),
+            b'' if self.message is None or self.message is False else (self.serialize_bytes(self.message)),
+            b'' if self.media is None or self.media is False else (self.media._bytes()),
+            b'' if self.entities is None or self.entities is False else b''.join((b'\x15\xc4\xb5\x1c',struct.pack('<i', len(self.entities)),b''.join(x._bytes() for x in self.entities))),
+            b'' if self.reply_markup is None or self.reply_markup is False else (self.reply_markup._bytes()),
+            b'' if self.rich_message is None or self.rich_message is False else (self.rich_message._bytes()),
+        ))
+
+    @classmethod
+    def from_reader(cls, reader):
+        flags = reader.read_int()
+
+        _invert_media = bool(flags & 32)
+        _welcome = bool(flags & 64)
+        if flags & 128:
+            _peer = reader.tgread_object()
+        else:
+            _peer = None
         _receiver_id = reader.tgread_object()
         _id = reader.read_int()
-        return cls(peer=_peer, receiver_id=_receiver_id, id=_id)
+        if flags & 1:
+            _message = reader.tgread_string()
+        else:
+            _message = None
+        if flags & 8:
+            _media = reader.tgread_object()
+        else:
+            _media = None
+        if flags & 2:
+            reader.read_int()
+            _entities = []
+            for _ in range(reader.read_int()):
+                _x = reader.tgread_object()
+                _entities.append(_x)
+
+        else:
+            _entities = None
+        if flags & 4:
+            _reply_markup = reader.tgread_object()
+        else:
+            _reply_markup = None
+        if flags & 16:
+            _rich_message = reader.tgread_object()
+        else:
+            _rich_message = None
+        return cls(receiver_id=_receiver_id, id=_id, invert_media=_invert_media, welcome=_welcome, peer=_peer, message=_message, media=_media, entities=_entities, reply_markup=_reply_markup, rich_message=_rich_message)
 
 
 class GetCallbackAnswerRequest(TLRequest):
@@ -104,6 +287,45 @@ class GetCallbackAnswerRequest(TLRequest):
         return cls(peer=_peer, id=_id, data=_data)
 
 
+class GetWelcomeMessagesRequest(TLRequest):
+    CONSTRUCTOR_ID = 0xdb9ac18d
+    SUBCLASS_OF_ID = 0x6f749a2d
+
+    def __init__(self, peer: 'TypeInputPeer', hash: int):
+        """
+        :returns ephemeral.WelcomeMessages: Instance of either WelcomeMessagesNotModified, WelcomeMessages.
+        """
+        self.peer = peer
+        self.hash = hash
+
+        super().__init__()
+
+    async def resolve(self, client, utils):
+        self.peer = utils.get_input_peer(await client.get_input_entity(self.peer))
+        self._check_peer(self.peer)
+
+    def to_dict(self):
+        return {
+            '_': 'GetWelcomeMessagesRequest',
+            'peer': self.peer.to_dict() if isinstance(self.peer, TLObject) else self.peer,
+            'hash': self.hash
+        }
+
+    def _bytes(self):
+        self._assert_no_forbidden_constructors()
+        return b''.join((
+            b'\x8d\xc1\x9a\xdb',
+            self.peer._bytes(),
+            struct.pack('<q', self.hash),
+        ))
+
+    @classmethod
+    def from_reader(cls, reader):
+        _peer = reader.tgread_object()
+        _hash = reader.read_long()
+        return cls(peer=_peer, hash=_hash)
+
+
 class ReportMessageRequest(TLRequest):
     CONSTRUCTOR_ID = 0x8704f2bf
     SUBCLASS_OF_ID = 0xacd3f438
@@ -152,16 +374,20 @@ class ReportMessageRequest(TLRequest):
 
 
 class SendMessageRequest(TLRequest):
-    CONSTRUCTOR_ID = 0x68cbd09f
+    CONSTRUCTOR_ID = 0xba8d5f35
     SUBCLASS_OF_ID = 0x8af52aac
 
-    def __init__(self, peer: 'TypeInputPeer', receiver_id: 'TypeInputUser', message: str, query_id: Optional[int]=None, entities: Optional[List['TypeMessageEntity']]=None, media: Optional['TypeInputMedia']=None, reply_markup: Optional['TypeReplyMarkup']=None, rich_message: Optional['TypeInputRichMessage']=None, random_id: int=None, reply_to: Optional['TypeInputReplyTo']=None):
+    def __init__(self, receiver_id: 'TypeInputUser', message: str, invert_media: Optional[bool]=None, welcome: Optional[bool]=None, anchor: Optional[bool]=None, noforwards: Optional[bool]=None, peer: Optional['TypeInputPeer']=None, query_id: Optional[int]=None, entities: Optional[List['TypeMessageEntity']]=None, media: Optional['TypeInputMedia']=None, reply_markup: Optional['TypeReplyMarkup']=None, rich_message: Optional['TypeInputRichMessage']=None, random_id: int=None, reply_to: Optional['TypeInputReplyTo']=None):
         """
         :returns Updates: Instance of either UpdatesTooLong, UpdateShortMessage, UpdateShortChatMessage, UpdateShort, UpdatesCombined, Updates, UpdateShortSentMessage.
         """
-        self.peer = peer
         self.receiver_id = receiver_id
         self.message = message
+        self.invert_media = invert_media
+        self.welcome = welcome
+        self.anchor = anchor
+        self.noforwards = noforwards
+        self.peer = peer
         self.query_id = query_id
         self.entities = entities
         self.media = media
@@ -173,10 +399,12 @@ class SendMessageRequest(TLRequest):
         super().__init__()
 
     async def resolve(self, client, utils):
-        self.peer = utils.get_input_peer(await client.get_input_entity(self.peer))
-        self._check_peer(self.peer)
         self.receiver_id = utils.get_input_user(await client.get_input_entity(self.receiver_id))
         self._check_peer(self.receiver_id)
+        if self.peer:
+            self.peer = utils.get_input_peer(await client.get_input_entity(self.peer))
+            self._check_peer(self.peer)
+
         if self.media:
             self.media = utils.get_input_media(self.media)
             self._check_peer(self.media)
@@ -184,9 +412,13 @@ class SendMessageRequest(TLRequest):
     def to_dict(self):
         return {
             '_': 'SendMessageRequest',
-            'peer': self.peer.to_dict() if isinstance(self.peer, TLObject) else self.peer,
             'receiver_id': self.receiver_id.to_dict() if isinstance(self.receiver_id, TLObject) else self.receiver_id,
             'message': self.message,
+            'invert_media': self.invert_media,
+            'welcome': self.welcome,
+            'anchor': self.anchor,
+            'noforwards': self.noforwards,
+            'peer': self.peer.to_dict() if isinstance(self.peer, TLObject) else self.peer,
             'query_id': self.query_id,
             'entities': [] if self.entities is None else [x.to_dict() if isinstance(x, TLObject) else x for x in self.entities],
             'media': self.media.to_dict() if isinstance(self.media, TLObject) else self.media,
@@ -199,9 +431,9 @@ class SendMessageRequest(TLRequest):
     def _bytes(self):
         self._assert_no_forbidden_constructors()
         return b''.join((
-            b'\x9f\xd0\xcbh',
-            struct.pack('<I', (0 if self.query_id is None or self.query_id is False else 1) | (0 if self.entities is None or self.entities is False else 2) | (0 if self.media is None or self.media is False else 4) | (0 if self.reply_markup is None or self.reply_markup is False else 8) | (0 if self.rich_message is None or self.rich_message is False else 16) | (0 if self.reply_to is None or self.reply_to is False else 32)),
-            self.peer._bytes(),
+            b'5_\x8d\xba',
+            struct.pack('<I', (0 if self.invert_media is None or self.invert_media is False else 64) | (0 if self.welcome is None or self.welcome is False else 128) | (0 if self.anchor is None or self.anchor is False else 512) | (0 if self.noforwards is None or self.noforwards is False else 1024) | (0 if self.peer is None or self.peer is False else 256) | (0 if self.query_id is None or self.query_id is False else 1) | (0 if self.entities is None or self.entities is False else 2) | (0 if self.media is None or self.media is False else 4) | (0 if self.reply_markup is None or self.reply_markup is False else 8) | (0 if self.rich_message is None or self.rich_message is False else 16) | (0 if self.reply_to is None or self.reply_to is False else 32)),
+            b'' if self.peer is None or self.peer is False else (self.peer._bytes()),
             self.receiver_id._bytes(),
             b'' if self.query_id is None or self.query_id is False else (struct.pack('<q', self.query_id)),
             self.serialize_bytes(self.message),
@@ -217,7 +449,14 @@ class SendMessageRequest(TLRequest):
     def from_reader(cls, reader):
         flags = reader.read_int()
 
-        _peer = reader.tgread_object()
+        _invert_media = bool(flags & 64)
+        _welcome = bool(flags & 128)
+        _anchor = bool(flags & 512)
+        _noforwards = bool(flags & 1024)
+        if flags & 256:
+            _peer = reader.tgread_object()
+        else:
+            _peer = None
         _receiver_id = reader.tgread_object()
         if flags & 1:
             _query_id = reader.read_long()
@@ -250,5 +489,5 @@ class SendMessageRequest(TLRequest):
             _reply_to = reader.tgread_object()
         else:
             _reply_to = None
-        return cls(peer=_peer, receiver_id=_receiver_id, message=_message, query_id=_query_id, entities=_entities, media=_media, reply_markup=_reply_markup, rich_message=_rich_message, random_id=_random_id, reply_to=_reply_to)
+        return cls(receiver_id=_receiver_id, message=_message, invert_media=_invert_media, welcome=_welcome, anchor=_anchor, noforwards=_noforwards, peer=_peer, query_id=_query_id, entities=_entities, media=_media, reply_markup=_reply_markup, rich_message=_rich_message, random_id=_random_id, reply_to=_reply_to)
 

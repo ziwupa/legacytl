@@ -806,7 +806,7 @@ class GetRequestedWebViewButtonRequest(TLRequest):
 
     def __init__(self, bot: 'TypeInputUser', webapp_req_id: str):
         """
-        :returns KeyboardButton: Instance of either KeyboardButton, KeyboardButtonUrl, KeyboardButtonCallback, KeyboardButtonRequestPhone, KeyboardButtonRequestGeoLocation, KeyboardButtonSwitchInline, KeyboardButtonGame, KeyboardButtonBuy, KeyboardButtonUrlAuth, InputKeyboardButtonUrlAuth, KeyboardButtonRequestPoll, InputKeyboardButtonUserProfile, KeyboardButtonUserProfile, KeyboardButtonWebView, KeyboardButtonSimpleWebView, KeyboardButtonRequestPeer, InputKeyboardButtonRequestPeer, KeyboardButtonCopy.
+        :returns KeyboardButton: Instance of KeyboardButton.
         """
         self.bot = bot
         self.webapp_req_id = webapp_req_id

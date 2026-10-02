@@ -2344,7 +2344,7 @@ class ForwardMessagesRequest(TLRequest):
     CONSTRUCTOR_ID = 0x13704a7c
     SUBCLASS_OF_ID = 0x8af52aac
 
-    def __init__(self, from_peer: 'TypeInputPeer', id: List[int], to_peer: 'TypeInputPeer', silent: Optional[bool]=None, background: Optional[bool]=None, with_my_score: Optional[bool]=None, drop_author: Optional[bool]=None, drop_media_captions: Optional[bool]=None, noforwards: Optional[bool]=None, allow_paid_floodskip: Optional[bool]=None, random_id: List[int]=None, top_msg_id: Optional[int]=None, reply_to: Optional['TypeInputReplyTo']=None, schedule_date: Optional[datetime]=None, schedule_repeat_period: Optional[int]=None, send_as: Optional['TypeInputPeer']=None, quick_reply_shortcut: Optional['TypeInputQuickReplyShortcut']=None, effect: Optional[int]=None, video_timestamp: Optional[int]=None, allow_paid_stars: Optional[int]=None, suggested_post: Optional['TypeSuggestedPost']=None):
+    def __init__(self, from_peer: 'TypeInputPeer', id: List[int], to_peer: 'TypeInputPeer', silent: Optional[bool]=None, background: Optional[bool]=None, with_my_score: Optional[bool]=None, drop_author: Optional[bool]=None, drop_media_captions: Optional[bool]=None, noforwards: Optional[bool]=None, allow_paid_floodskip: Optional[bool]=None, from_ephemeral: Optional[bool]=None, random_id: List[int]=None, top_msg_id: Optional[int]=None, reply_to: Optional['TypeInputReplyTo']=None, schedule_date: Optional[datetime]=None, schedule_repeat_period: Optional[int]=None, send_as: Optional['TypeInputPeer']=None, quick_reply_shortcut: Optional['TypeInputQuickReplyShortcut']=None, effect: Optional[int]=None, video_timestamp: Optional[int]=None, allow_paid_stars: Optional[int]=None, suggested_post: Optional['TypeSuggestedPost']=None):
         """
         :returns Updates: Instance of either UpdatesTooLong, UpdateShortMessage, UpdateShortChatMessage, UpdateShort, UpdatesCombined, Updates, UpdateShortSentMessage.
         """
@@ -2358,6 +2358,7 @@ class ForwardMessagesRequest(TLRequest):
         self.drop_media_captions = drop_media_captions
         self.noforwards = noforwards
         self.allow_paid_floodskip = allow_paid_floodskip
+        self.from_ephemeral = from_ephemeral
         self.random_id = random_id if random_id is not None else [int.from_bytes(os.urandom(8), 'big', signed=True) for _ in range(len(id))]
         self.top_msg_id = top_msg_id
         self.reply_to = reply_to
@@ -2394,6 +2395,7 @@ class ForwardMessagesRequest(TLRequest):
             'drop_media_captions': self.drop_media_captions,
             'noforwards': self.noforwards,
             'allow_paid_floodskip': self.allow_paid_floodskip,
+            'from_ephemeral': self.from_ephemeral,
             'random_id': [] if self.random_id is None else self.random_id[:],
             'top_msg_id': self.top_msg_id,
             'reply_to': self.reply_to.to_dict() if isinstance(self.reply_to, TLObject) else self.reply_to,
@@ -2411,7 +2413,7 @@ class ForwardMessagesRequest(TLRequest):
         self._assert_no_forbidden_constructors()
         return b''.join((
             b'|Jp\x13',
-            struct.pack('<I', (0 if self.silent is None or self.silent is False else 32) | (0 if self.background is None or self.background is False else 64) | (0 if self.with_my_score is None or self.with_my_score is False else 256) | (0 if self.drop_author is None or self.drop_author is False else 2048) | (0 if self.drop_media_captions is None or self.drop_media_captions is False else 4096) | (0 if self.noforwards is None or self.noforwards is False else 16384) | (0 if self.allow_paid_floodskip is None or self.allow_paid_floodskip is False else 524288) | (0 if self.top_msg_id is None or self.top_msg_id is False else 512) | (0 if self.reply_to is None or self.reply_to is False else 4194304) | (0 if self.schedule_date is None or self.schedule_date is False else 1024) | (0 if self.schedule_repeat_period is None or self.schedule_repeat_period is False else 16777216) | (0 if self.send_as is None or self.send_as is False else 8192) | (0 if self.quick_reply_shortcut is None or self.quick_reply_shortcut is False else 131072) | (0 if self.effect is None or self.effect is False else 262144) | (0 if self.video_timestamp is None or self.video_timestamp is False else 1048576) | (0 if self.allow_paid_stars is None or self.allow_paid_stars is False else 2097152) | (0 if self.suggested_post is None or self.suggested_post is False else 8388608)),
+            struct.pack('<I', (0 if self.silent is None or self.silent is False else 32) | (0 if self.background is None or self.background is False else 64) | (0 if self.with_my_score is None or self.with_my_score is False else 256) | (0 if self.drop_author is None or self.drop_author is False else 2048) | (0 if self.drop_media_captions is None or self.drop_media_captions is False else 4096) | (0 if self.noforwards is None or self.noforwards is False else 16384) | (0 if self.allow_paid_floodskip is None or self.allow_paid_floodskip is False else 524288) | (0 if self.from_ephemeral is None or self.from_ephemeral is False else 33554432) | (0 if self.top_msg_id is None or self.top_msg_id is False else 512) | (0 if self.reply_to is None or self.reply_to is False else 4194304) | (0 if self.schedule_date is None or self.schedule_date is False else 1024) | (0 if self.schedule_repeat_period is None or self.schedule_repeat_period is False else 16777216) | (0 if self.send_as is None or self.send_as is False else 8192) | (0 if self.quick_reply_shortcut is None or self.quick_reply_shortcut is False else 131072) | (0 if self.effect is None or self.effect is False else 262144) | (0 if self.video_timestamp is None or self.video_timestamp is False else 1048576) | (0 if self.allow_paid_stars is None or self.allow_paid_stars is False else 2097152) | (0 if self.suggested_post is None or self.suggested_post is False else 8388608)),
             self.from_peer._bytes(),
             b'\x15\xc4\xb5\x1c',struct.pack('<i', len(self.id)),b''.join(struct.pack('<i', x) for x in self.id),
             b'\x15\xc4\xb5\x1c',struct.pack('<i', len(self.random_id)),b''.join(struct.pack('<q', x) for x in self.random_id),
@@ -2439,6 +2441,7 @@ class ForwardMessagesRequest(TLRequest):
         _drop_media_captions = bool(flags & 4096)
         _noforwards = bool(flags & 16384)
         _allow_paid_floodskip = bool(flags & 524288)
+        _from_ephemeral = bool(flags & 33554432)
         _from_peer = reader.tgread_object()
         reader.read_int()
         _id = []
@@ -2493,7 +2496,7 @@ class ForwardMessagesRequest(TLRequest):
             _suggested_post = reader.tgread_object()
         else:
             _suggested_post = None
-        return cls(from_peer=_from_peer, id=_id, to_peer=_to_peer, silent=_silent, background=_background, with_my_score=_with_my_score, drop_author=_drop_author, drop_media_captions=_drop_media_captions, noforwards=_noforwards, allow_paid_floodskip=_allow_paid_floodskip, random_id=_random_id, top_msg_id=_top_msg_id, reply_to=_reply_to, schedule_date=_schedule_date, schedule_repeat_period=_schedule_repeat_period, send_as=_send_as, quick_reply_shortcut=_quick_reply_shortcut, effect=_effect, video_timestamp=_video_timestamp, allow_paid_stars=_allow_paid_stars, suggested_post=_suggested_post)
+        return cls(from_peer=_from_peer, id=_id, to_peer=_to_peer, silent=_silent, background=_background, with_my_score=_with_my_score, drop_author=_drop_author, drop_media_captions=_drop_media_captions, noforwards=_noforwards, allow_paid_floodskip=_allow_paid_floodskip, from_ephemeral=_from_ephemeral, random_id=_random_id, top_msg_id=_top_msg_id, reply_to=_reply_to, schedule_date=_schedule_date, schedule_repeat_period=_schedule_repeat_period, send_as=_send_as, quick_reply_shortcut=_quick_reply_shortcut, effect=_effect, video_timestamp=_video_timestamp, allow_paid_stars=_allow_paid_stars, suggested_post=_suggested_post)
 
 
 class GetAdminsWithInvitesRequest(TLRequest):
