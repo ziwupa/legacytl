@@ -1085,7 +1085,7 @@ class Message(ChatGetter, SenderGetter, TLObject):
             if not chat:
                 return None
 
-            but = types.KeyboardButtonCallback("", data)
+            but = types.KeyboardInlineButton("", types.InlineButtonTypeCallback(data))
             return await MessageButton(self._client, but, chat, None, self.id).click(
                 share_phone=share_phone,
                 share_geo=share_geo,
@@ -1272,7 +1272,9 @@ class Message(ChatGetter, SenderGetter, TLObject):
 
         for row in self.reply_markup.rows:
             for button in row.buttons:
-                if isinstance(button, types.KeyboardButtonSwitchInline):
+                if isinstance(
+                    getattr(button, "type", None), types.InlineButtonTypeSwitchInline
+                ):
                     # no via_bot_id means the bot sent the message itself (#1619)
                     if button.same_peer or not self.via_bot_id:
                         bot = self.input_sender
