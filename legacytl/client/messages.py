@@ -1386,7 +1386,9 @@ class MessageMethods:
         ):
             request = functions.messages.EditInlineBotMessageRequest(
                 id=entity,
-                message=text,
+                # `message` is optional and must be omitted when a rich
+                # message replaces the text, otherwise Telegram clears it
+                message=(text if rich is None else text or None),
                 no_webpage=not link_preview,
                 invert_media=invert_media,  # skip merge
                 entities=formatting_entities,
@@ -1410,7 +1412,7 @@ class MessageMethods:
         request = functions.messages.EditMessageRequest(
             peer=entity,
             id=utils.get_message_id(message),
-            message=text,
+            message=(text if rich is None else text or None),
             no_webpage=not link_preview,
             invert_media=invert_media,  # skip merge
             entities=formatting_entities,
