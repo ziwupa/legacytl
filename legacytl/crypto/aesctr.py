@@ -1,14 +1,19 @@
 """
 This module holds the AESModeCTR wrapper class.
 """
-
-import pyaes
+try:
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+except ImportError:
+    Cipher = None
 
 
 class AESModeCTR:
-    """Wrapper around pyaes.AESModeOfOperationCTR mode with custom IV"""
+    """
+    AES CTR mode with a custom 16-byte initial counter block.
 
-    # TODO Maybe make a pull request to pyaes to support iv on CTR
+    Uses ``cryptography`` if available, otherwise ``pyaes``.
+    Encryption and decryption share the same keystream.
+    """
 
     def __init__(self, key, iv):
         """
@@ -17,13 +22,17 @@ class AESModeCTR:
         :param key: the key to be used as bytes.
         :param iv: the bytes initialization vector. Must have a length of 16.
         """
-        # TODO Use libssl if available
         assert isinstance(key, bytes)
-        self._aes = pyaes.AESModeOfOperationCTR(key)
-
         assert isinstance(iv, bytes)
         assert len(iv) == 16
-        self._aes._counter._counter = list(iv)
+        if Cipher is not None:
+            self._aes = None
+            self._update = Cipher(algorithms.AES(key), modes.CTR(iv)).encryptor().update
+        else:
+            import pyaes
+            self._aes = pyaes.AESModeOfOperationCTR(key)
+            self._aes._counter._counter = list(iv)
+            self._update = self._aes.encrypt
 
     def encrypt(self, data):
         """
@@ -32,7 +41,7 @@ class AESModeCTR:
         :param data: the plain text to be encrypted.
         :return: the encrypted cipher text.
         """
-        return self._aes.encrypt(data)
+        return self._update(data)
 
     def decrypt(self, data):
         """
@@ -41,4 +50,4 @@ class AESModeCTR:
         :param data: the cipher text to be decrypted.
         :return: the decrypted plain text.
         """
-        return self._aes.decrypt(data)
+        return self._update(data)

@@ -1,12 +1,10 @@
 """
 Helper module around the system's libssl library if available for IGE mode.
 """
-
 import ctypes
 import ctypes.util
 import platform
 import sys
-
 try:
     import ctypes.macholib.dyld
 except ImportError:
@@ -18,22 +16,22 @@ __log__ = logging.getLogger(__name__)
 
 
 def _find_ssl_lib():
-    lib = ctypes.util.find_library("ssl")
+    lib = ctypes.util.find_library('ssl')
     # macOS 10.15 segfaults on  unversioned crypto libraries.
     # We therefore pin the current stable version here
     # Credit for fix goes to Sarah Harvey (@worldwise001)
     # https://www.shh.sh/2020/01/04/python-abort-trap-6.html
-    if sys.platform == "darwin":
+    if sys.platform == 'darwin':
         release, _version_info, _machine = platform.mac_ver()
-        ver, major, *_ = release.split(".")
+        ver, major, *_ = release.split('.')
         # macOS 10.14 "mojave" is the last known major release
         # to support unversioned libssl.dylib. Anything above
         # needs specific versions
         if int(ver) > 10 or int(ver) == 10 and int(major) > 14:
             lib = (
-                ctypes.util.find_library("libssl.46")
-                or ctypes.util.find_library("libssl.44")
-                or ctypes.util.find_library("libssl.42")
+                ctypes.util.find_library('libssl.46') or
+                ctypes.util.find_library('libssl.44') or
+                ctypes.util.find_library('libssl.42')
             )
     if not lib:
         raise OSError('no library called "ssl" found')
@@ -73,71 +71,66 @@ def _find_ssl_lib():
         raise OSError('no absolute path for "%s" and cannot load by name' % lib)
 
 
-try:
-    _libssl = _find_ssl_lib()
-except OSError as e:
-    # See https://github.com/LonamiWebs/Telethon/issues/1167
-    # Sometimes `find_library` returns improper filenames.
-    __log__.info("Failed to load SSL library: %s (%s)", type(e), e)
-    _libssl = None
+# https://github.com/openssl/openssl/blob/master/include/openssl/aes.h
+AES_ENCRYPT = ctypes.c_int(1)
+AES_DECRYPT = ctypes.c_int(0)
+AES_MAXNR = 14
 
-if not _libssl:
-    decrypt_ige = None
-    encrypt_ige = None
-else:
-    # https://github.com/openssl/openssl/blob/master/include/openssl/aes.h
-    AES_ENCRYPT = ctypes.c_int(1)
-    AES_DECRYPT = ctypes.c_int(0)
-    AES_MAXNR = 14
 
-    class AES_KEY(ctypes.Structure):
-        """Helper class representing an AES key"""
+class AES_KEY(ctypes.Structure):
+    """Helper class representing an AES key"""
+    _fields_ = [
+        ('rd_key', ctypes.c_uint32 * (4 * (AES_MAXNR + 1))),
+        ('rounds', ctypes.c_uint),
+    ]
 
-        _fields_ = [
-            ("rd_key", ctypes.c_uint32 * (4 * (AES_MAXNR + 1))),
-            ("rounds", ctypes.c_uint),
-        ]
 
-    def decrypt_ige(cipher_text, key, iv):
-        aes_key = AES_KEY()
-        key_len = ctypes.c_int(8 * len(key))
-        key = (ctypes.c_ubyte * len(key))(*key)
-        iv = (ctypes.c_ubyte * len(iv))(*iv)
+def _ige(data, key, iv, set_key, mode):
+    if not isinstance(data, bytes):
+        data = bytes(data)
+    if not isinstance(key, bytes):
+        key = bytes(key)
+    aes_key = AES_KEY()
+    set_key(key, ctypes.c_int(8 * len(key)), ctypes.byref(aes_key))
+    out = ctypes.create_string_buffer(len(data))
+    _libssl.AES_ige_encrypt(
+        data,
+        out,
+        ctypes.c_size_t(len(data)),
+        ctypes.byref(aes_key),
+        ctypes.create_string_buffer(bytes(iv), len(iv)),
+        mode
+    )
+    return out.raw
 
-        in_len = ctypes.c_size_t(len(cipher_text))
-        in_ptr = (ctypes.c_ubyte * len(cipher_text))(*cipher_text)
-        out_ptr = (ctypes.c_ubyte * len(cipher_text))()
 
-        _libssl.AES_set_decrypt_key(key, key_len, ctypes.byref(aes_key))
-        _libssl.AES_ige_encrypt(
-            ctypes.byref(in_ptr),
-            ctypes.byref(out_ptr),
-            in_len,
-            ctypes.byref(aes_key),
-            ctypes.byref(iv),
-            AES_DECRYPT,
-        )
+def _decrypt_ige(cipher_text, key, iv):
+    return _ige(cipher_text, key, iv, _libssl.AES_set_decrypt_key, AES_DECRYPT)
 
-        return bytes(out_ptr)
 
-    def encrypt_ige(plain_text, key, iv):
-        aes_key = AES_KEY()
-        key_len = ctypes.c_int(8 * len(key))
-        key = (ctypes.c_ubyte * len(key))(*key)
-        iv = (ctypes.c_ubyte * len(iv))(*iv)
+def _encrypt_ige(plain_text, key, iv):
+    return _ige(plain_text, key, iv, _libssl.AES_set_encrypt_key, AES_ENCRYPT)
 
-        in_len = ctypes.c_size_t(len(plain_text))
-        in_ptr = (ctypes.c_ubyte * len(plain_text))(*plain_text)
-        out_ptr = (ctypes.c_ubyte * len(plain_text))()
 
-        _libssl.AES_set_encrypt_key(key, key_len, ctypes.byref(aes_key))
-        _libssl.AES_ige_encrypt(
-            ctypes.byref(in_ptr),
-            ctypes.byref(out_ptr),
-            in_len,
-            ctypes.byref(aes_key),
-            ctypes.byref(iv),
-            AES_ENCRYPT,
-        )
+def _load():
+    # Finding the library may spawn processes, so only do it when needed
+    global _libssl, encrypt_ige, decrypt_ige
+    try:
+        lib = _find_ssl_lib()
+        lib.AES_ige_encrypt.restype = None
+    except (OSError, AttributeError) as e:
+        # See https://github.com/LonamiWebs/Telethon/issues/1167
+        # Sometimes `find_library` returns improper filenames.
+        __log__.info('Failed to load SSL library: %s (%s)', type(e), e)
+        lib = None
 
-        return bytes(out_ptr)
+    _libssl = lib
+    encrypt_ige = _encrypt_ige if lib else None
+    decrypt_ige = _decrypt_ige if lib else None
+
+
+def __getattr__(name):
+    if name in ('_libssl', 'encrypt_ige', 'decrypt_ige'):
+        _load()
+        return globals()[name]
+    raise AttributeError('module {!r} has no attribute {!r}'.format(__name__, name))
