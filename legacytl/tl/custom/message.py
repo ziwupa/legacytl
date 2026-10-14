@@ -410,11 +410,16 @@ class Message(ChatGetter, SenderGetter, TLObject):
         parse mode. Will be `None` for :tl:`MessageService`.
         """
         if self._text is None and self._client:
+            message, entities = self.message, self.entities
+            if not message and self._rich() is not None:
+                # Rich-only message: its text and entities, as close as possible
+                from ...extensions import rich
+                message, entities = rich.to_entities(self._rich())
             if not self._client.parse_mode:
-                self._text = self.message
+                self._text = message
             else:
                 self._text = self._client.parse_mode.unparse(
-                    self.message, self.entities
+                    message, entities
                 )
 
         return self._text
@@ -435,7 +440,12 @@ class Message(ChatGetter, SenderGetter, TLObject):
 
         Setting a value to this field will erase the
         `entities`, unlike changing the `message` member.
+
+        For rich messages without a plain ``message`` this is `rich_text`.
         """
+        if not self.message and self._rich() is not None:
+            from ...extensions import rich
+            return rich.to_text(self._rich())
         return self.message
 
     @raw_text.setter
@@ -764,6 +774,40 @@ class Message(ChatGetter, SenderGetter, TLObject):
             return types.PeerUser(self._client._self_id)
 
         return self.peer_id
+
+    @property
+    def rich_html(self):
+        """
+        The rich content of a rich message as rich HTML (the dialect of
+        :tl:`InputRichMessageHTML`), or `None` if this is not a rich message.
+        See `legacytl.extensions.rich.unparse`.
+        """
+        content = self._rich()
+        if content is not None:
+            from ...extensions import rich
+            return rich.unparse(content)
+
+    @property
+    def rich_text(self):
+        """
+        The plain text of a rich message, or `None` if this is not a rich
+        message.
+        """
+        content = self._rich()
+        if content is not None:
+            from ...extensions import rich
+            return rich.to_text(content)
+
+    @property
+    def rich_input(self):
+        """
+        An :tl:`InputRichMessageHTML` that sends this rich message again
+        (reusing its photos and documents), or `None`.
+        """
+        content = self._rich()
+        if content is not None:
+            from ...extensions import rich
+            return rich.to_input(content)
 
     # endregion Public Properties
 
@@ -1288,6 +1332,10 @@ class Message(ChatGetter, SenderGetter, TLObject):
                             )._as_input_peer()
                         except AttributeError:
                             raise ValueError("No input sender") from None
+
+    def _rich(self):
+        """The :tl:`RichMessage` of this message, if any"""
+        return getattr(self, 'rich_message', None)
 
     def _document_by_attribute(self, kind, condition=None):
         """

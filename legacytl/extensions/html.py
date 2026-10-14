@@ -3,13 +3,13 @@ Simple HTML -> Telegram entity parser.
 """
 
 import re
-import struct
 import datetime
 from collections import deque
 from html import escape
 from html.parser import HTMLParser
 from typing import Optional, Tuple, List, Generator, List, Optional, cast
 from abc import ABC, abstractmethod
+from types import SimpleNamespace
 
 from .. import helpers
 from ..tl.types import (
@@ -31,20 +31,58 @@ from ..tl.types import (
 )
 
 
-# Helpers from markdown.py
-def _add_surrogate(text):
+# Bot API `format` letters of <tg-time> and the flags they stand for
+DATE_FORMAT = (
+    ("r", "relative"), ("w", "day_of_week"), ("d", "short_date"),
+    ("D", "long_date"), ("t", "short_time"), ("T", "long_time"),
+)
+
+
+def _date_args(tag, attrs):
+    """Arguments of `MessageEntityFormattedDate` from <tg-time> or <date>"""
+    try:
+        if tag == "tg-time":
+            date = int(attrs["unix"])
+            flags = {flag for char, flag in DATE_FORMAT if char in (attrs.get("format") or "")}
+        else:
+            moment = datetime.datetime.fromisoformat(attrs["date"].replace("Z", "+00:00"))
+            if moment.tzinfo is None:
+                moment = moment.replace(tzinfo=datetime.timezone.utc)
+            date = int(moment.timestamp())
+            flags = {flag for _, flag in DATE_FORMAT if flag.replace("_", "-") in attrs}
+    except (KeyError, TypeError, ValueError):
+        return None
+
+    return {"date": date, **{flag: True for flag in flags}}
+
+
+def _unix(date):
+    """`int` timestamp of a TL ``date`` (received objects carry a `datetime`)"""
+    if isinstance(date, datetime.datetime):
+        if date.tzinfo is None:
+            date = date.replace(tzinfo=datetime.timezone.utc)
+        return int(date.timestamp())
+    try:
+        return int(date)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _date_format(entity):
+    if entity.relative:
+        return "r"
+
     return "".join(
-        (
-            "".join(chr(y) for y in struct.unpack("<HH", x.encode("utf-16le")))
-            if (0x10000 <= ord(x) <= 0x10FFFF)
-            else x
-        )
-        for x in text
+        char for char, flag in DATE_FORMAT[1:]
+        if getattr(entity, flag)
+        and not (char == "d" and entity.long_date)
+        and not (char == "t" and entity.long_time)
     )
 
 
-def _del_surrogate(text):
-    return text.encode("utf-16", "surrogatepass").decode("utf-16")
+# Helpers from markdown.py
+_add_surrogate = helpers.add_surrogate
+_del_surrogate = helpers.del_surrogate
 
 
 class HTMLToTelegramParser(HTMLParser):
@@ -123,22 +161,12 @@ class HTMLToTelegramParser(HTMLParser):
         elif tag == "emoji" and CUSTOM_EMOJIS:
             EntityType = MessageEntityCustomEmoji
             args["document_id"] = int(attrs["document_id"])
-        elif tag == "date":
-            EntityType = MessageEntityFormattedDate
-            try:
-                if isinstance(attrs["date"], str):
-                    date = datetime.datetime.fromisoformat(attrs["date"])
-                else:
-                    return
-                args["date"] = date
-            except (KeyError, ValueError):
+        elif tag in ("tg-time", "date"):
+            args = _date_args(tag, attrs)
+            if args is None:
                 return
-            args["relative"] = "relative" in attrs
-            args["short_time"] = "short-time" in attrs
-            args["long_time"] = "long-time" in attrs
-            args["short_date"] = "short-date" in attrs
-            args["long_date"] = "long-date" in attrs
-            args["day_of_week"] = "day-of-week" in attrs
+
+            EntityType = MessageEntityFormattedDate
 
         if EntityType and tag not in self._building_entities:
             self._building_entities[tag] = EntityType(
@@ -192,6 +220,17 @@ CUSTOM_EMOJIS = True  # Can be disabled externally
 
 # Based on https://github.com/aiogram/aiogram/blob/c43ff9b6f9dd62cd2d84272e5c460b904b4c3276/aiogram/utils/text_decorations.py
 
+_ENTITY_METHOD_MAP = {
+    MessageEntityBold: "bold",
+    MessageEntityItalic: "italic",
+    MessageEntitySpoiler: "spoiler",
+    MessageEntityCode: "code",
+    MessageEntityUnderline: "underline",
+    MessageEntityStrike: "strikethrough",
+}
+
+_EMOJI_TAG_RE = re.compile(r"^<emoji document_id=\"?\d+?\"?>[^<]*?<\/emoji>$")
+
 
 class TextDecoration(ABC):
     def apply_entity(self, entity, text: str) -> str:
@@ -201,19 +240,12 @@ class TextDecoration(ABC):
         :param text:
         :return:
         """
-        entity_map = {
-            MessageEntityBold: "bold",
-            MessageEntityItalic: "italic",
-            MessageEntitySpoiler: "spoiler",
-            MessageEntityCode: "code",
-            MessageEntityUnderline: "underline",
-            MessageEntityStrike: "strikethrough",
-        }
-        if type(entity) in entity_map:
-            if re.match(r"^<emoji document_id=\"?\d+?\"?>[^<]*?<\/emoji>$", text):
+        method = _ENTITY_METHOD_MAP.get(type(entity))
+        if method is not None:
+            if _EMOJI_TAG_RE.match(text):
                 return text
 
-            return cast(str, getattr(self, entity_map[type(entity)])(value=text))
+            return cast(str, getattr(self, method)(value=text))
         if type(entity) == MessageEntityPre:
             return (
                 self.pre_language(value=text, language=entity.language)
@@ -374,10 +406,10 @@ class HtmlDecoration(TextDecoration):
         return f'<a href="{link}">{value}</a>'
 
     def bold(self, value: str) -> str:
-        return f"<b>{value}</b>"
+        return f"<strong>{value}</strong>"
 
     def italic(self, value: str) -> str:
-        return f"<i>{value}</i>"
+        return f"<em>{value}</em>"
 
     def spoiler(self, value: str) -> str:
         return f"<tg-spoiler>{value}</tg-spoiler>"
@@ -419,21 +451,18 @@ class HtmlDecoration(TextDecoration):
         long_date: bool = False,
         day_of_week: bool = False,
     ) -> str:
-        date_attrs = f' date="{date.isoformat()}"'
-        if relative:
-            date_attrs += " relative"
-        if short_time:
-            date_attrs += " short-time"
-        if long_time:
-            date_attrs += " long-time"
-        if short_date:
-            date_attrs += " short-date"
-        if long_date:
-            date_attrs += " long-date"
-        if day_of_week:
-            date_attrs += " day-of-week"
-
-        return f"<date{date_attrs}>{value}</date>"
+        flags = SimpleNamespace(
+            relative=relative,
+            short_time=short_time,
+            long_time=long_time,
+            short_date=short_date,
+            long_date=long_date,
+            day_of_week=day_of_week,
+        )
+        fmt = _date_format(flags)
+        return '<tg-time unix="{}"{}>{}</tg-time>'.format(
+            _unix(date), f' format="{fmt}"' if fmt else "", value
+        )
 
 
 html_decoration = HtmlDecoration()
