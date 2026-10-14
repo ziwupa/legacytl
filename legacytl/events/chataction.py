@@ -105,10 +105,14 @@ class ChatAction(EventBuilder):
             # as there won't be a service message. Promotions and demotions
             # seem to have both new and prev participant, which are ignored
             # by this event.
+            # A self-join (actor == user) is a join, not "added by themselves"
+            added_by = None
+            if update.new_participant:
+                added_by = True if update.actor_id == update.user_id else update.actor_id
             return cls.Event(
                 types.PeerChannel(update.channel_id),
                 users=update.user_id,
-                added_by=update.actor_id if update.new_participant else None,
+                added_by=added_by,
                 kicked_by=update.actor_id if update.prev_participant else None,
             )
 

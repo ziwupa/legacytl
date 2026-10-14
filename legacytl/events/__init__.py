@@ -8,6 +8,12 @@ from .newmessage import NewMessage
 from .userupdate import UserUpdate
 from .callbackquery import CallbackQuery
 from .inlinequery import InlineQuery
+from .messagereaction import MessageReaction
+from .ephemeral import EphemeralMessage, EphemeralCallbackQuery
+from .business import BusinessMessage, BusinessConnection, BusinessCallbackQuery
+from .polls import PollUpdate, PollVote
+from .story import Story
+from .chatmember import ChatMember
 
 _HANDLERS_ATTRIBUTE = "__tl.handlers"
 
