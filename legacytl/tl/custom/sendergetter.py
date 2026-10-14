@@ -10,6 +10,8 @@ class SenderGetter(abc.ABC):
     methods.
     """
 
+    __slots__ = ()
+
     def __init__(self, sender_id=None, *, sender=None, input_sender=None):
         self._sender_id = sender_id
         self._sender = sender

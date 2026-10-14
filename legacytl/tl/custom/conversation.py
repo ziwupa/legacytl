@@ -6,6 +6,7 @@ import time
 
 from .chatgetter import ChatGetter
 from ... import helpers, utils, errors
+from .. import types
 
 # Sometimes the edits arrive very fast (within the same second).
 # In that case we add a small delta so that the age is older, for
@@ -178,7 +179,8 @@ class Conversation(ChatGetter):
             self._reply_indices,
             self._pending_replies,
             timeout,
-            lambda x, y: x.reply_to and x.reply_to.reply_to_msg_id == y,
+            lambda x, y: isinstance(x.reply_to, types.MessageReplyHeader)
+            and x.reply_to.reply_to_msg_id == y,
         )
 
     def _get_message(self, target_message, indices, pending, timeout, condition):
@@ -288,7 +290,8 @@ class Conversation(ChatGetter):
             self._last_read = target_id - 1
 
         if self._last_read >= target_id:
-            return
+            future.set_result(True)
+            return future
 
         self._pending_reads[target_id] = future
         return self._get_result(
@@ -399,7 +402,10 @@ class Conversation(ChatGetter):
             del self._pending_responses[msg_id]
 
         for msg_id, future in list(self._pending_replies.items()):
-            if response.reply_to and msg_id == response.reply_to.reply_to_msg_id:
+            if (
+                isinstance(response.reply_to, types.MessageReplyHeader)
+                and msg_id == response.reply_to.reply_to_msg_id
+            ):
                 self._reply_indices[msg_id] = len(self._incoming)
                 future.set_result(response)
                 del self._pending_replies[msg_id]
@@ -437,7 +443,7 @@ class Conversation(ChatGetter):
         self._last_read = event.max_id
 
         for msg_id, pending in list(self._pending_reads.items()):
-            if msg_id >= self._last_read:
+            if msg_id <= self._last_read:
                 pending.set_result(True)
                 del self._pending_reads[msg_id]
 

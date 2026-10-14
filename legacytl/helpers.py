@@ -4,6 +4,7 @@ import asyncio
 import io
 import enum
 import os
+import re
 import struct
 import inspect
 import logging
@@ -37,17 +38,36 @@ def ensure_parent_dir_exists(file_path):
         os.makedirs(parent, exist_ok=True)
 
 
-def add_surrogate(text):
+# Cache of UTF-16 surrogate pair strings for codepoints beyond the BMP,
+# keyed by codepoint. See https://en.wikipedia.org/wiki/Plane_(Unicode)#Overview.
+_smp_pairs = {}
+
+# Matches any character beyond the Basic Multilingual Plane.
+_non_bmp_re = re.compile(r"[\U00010000-\U0010FFFF]")
+
+
+def _smp_pair(codepoint):
     return "".join(
-        # SMP -> Surrogate Pairs (Telegram offsets are calculated with these).
-        # See https://en.wikipedia.org/wiki/Plane_(Unicode)#Overview for more.
-        (
-            "".join(chr(y) for y in struct.unpack("<HH", x.encode("utf-16le")))
-            if (0x10000 <= ord(x) <= 0x10FFFF)
-            else x
-        )
-        for x in text
+        chr(y) for y in struct.unpack("<HH", chr(codepoint).encode("utf-16le"))
     )
+
+
+def _smp_sub(match):
+    codepoint = ord(match.group())
+    pair = _smp_pairs.get(codepoint)
+    if pair is None:
+        pair = _smp_pairs[codepoint] = _smp_pair(codepoint)
+    return pair
+
+
+def add_surrogate(text):
+    # SMP -> Surrogate Pairs (Telegram offsets are calculated with these).
+    # Fast path: text without characters beyond the BMP needs no changes,
+    # which is by far the most common case, and a regex scan is C-speed.
+    if _non_bmp_re.search(text) is None:
+        return text
+
+    return _non_bmp_re.sub(_smp_sub, text)
 
 
 def del_surrogate(text):

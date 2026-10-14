@@ -22,6 +22,15 @@ MSG_TOO_OLD_DELTA = 300
 # Something must be wrong if we ignore too many messages at the same time
 MAX_CONSECUTIVE_IGNORED = 10
 
+# Requests carrying raw (media or already encrypted) bytes are not worth gzipping
+_NO_GZIP = frozenset(struct.pack('<I', x) for x in (
+    0xb304a621,  # upload.saveFilePart
+    0xde7b673d,  # upload.saveBigFilePart
+    0x44fa7a15,  # messages.sendEncrypted
+    0x5559481d,  # messages.sendEncryptedFile
+    0x32d439a4,  # messages.sendEncryptedService
+))
+
 
 class _OpaqueRequest(TLRequest):
     """
@@ -114,6 +123,8 @@ class MTProtoState:
         """
         msg_id = self._get_new_msg_id()
         seq_no = self._get_seq_no(content_related)
+        if content_related and data[:4] in _NO_GZIP:
+            content_related = False
         if after_id is None:
             body = GzipPacked.gzip_if_smaller(content_related, data)
         else:

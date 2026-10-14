@@ -30,6 +30,23 @@ DEFAULT_DELIMITERS = {
 DEFAULT_URL_RE = re.compile(r"\[([^]]*?)\]\(([\s\S]*?)\)")
 DEFAULT_URL_FORMAT = "[{0}]({1})"
 
+# Cache of compiled delimiter regexes, keyed by the delimiters sorted by
+# length (largest first, so that e.g. ``` is not read as a back-tick).
+_delim_re_cache = {}
+
+
+def _get_delim_re(delimiters):
+    key = tuple(sorted(delimiters, key=len, reverse=True))
+    delim_re = _delim_re_cache.get(key)
+    if delim_re is None:
+        # Build a regex to efficiently test all delimiters at once.
+        # Note that the largest delimiter should go first, we don't
+        # want ``` to be interpreted as a single back-tick in a code block.
+        delim_re = re.compile("|".join("({})".format(re.escape(k)) for k in key))
+        if len(_delim_re_cache) < 64:
+            _delim_re_cache[key] = delim_re
+    return delim_re
+
 
 def overlap(a, b, x, y):
     return max(a, x) < min(b, y)
@@ -58,15 +75,7 @@ def parse(message, delimiters=None, url_re=None):
             return message, []
         delimiters = DEFAULT_DELIMITERS
 
-    # Build a regex to efficiently test all delimiters at once.
-    # Note that the largest delimiter should go first, we don't
-    # want ``` to be interpreted as a single back-tick in a code block.
-    delim_re = re.compile(
-        "|".join(
-            "({})".format(re.escape(k))
-            for k in sorted(delimiters, key=len, reverse=True)
-        )
-    )
+    delim_re = _get_delim_re(delimiters)
 
     # Cannot use a for loop because we need to skip some indices
     i = 0
@@ -75,76 +84,89 @@ def parse(message, delimiters=None, url_re=None):
     # Work on byte level with the utf-16le encoding to get the offsets right.
     # The offset will just be half the index we're at.
     message = add_surrogate(message)
+
+    # Fast path: if no delimiter and no URL pattern is present, the loop
+    # below would do nothing but scan character by character.
+    if delim_re.search(message) is None and (
+        not url_re or url_re.search(message) is None
+    ):
+        return del_surrogate(strip_text(message, result)), result
+
     while i < len(message):
-        m = delim_re.match(message, pos=i)
+        # Search (C-speed) for the next delimiter or URL instead of trying
+        # a match at every single position.
+        m = delim_re.search(message, i)
+        um = url_re.search(message, i) if url_re else None
 
-        # Did we find some delimiter here at `i`?
-        if m:
-            delim = next(filter(None, m.groups()))
+        if um is not None and (m is None or um.start() < m.start()):
+            # The URL pattern matches before any delimiter.
+            # Replace the whole match with only the inline URL text.
+            message = "".join(
+                (message[: um.start()], um.group(1), message[um.end() :])
+            )
 
-            # +1 to avoid matching right after (e.g. "****")
-            end = message.find(delim, i + len(delim) + 1)
+            delim_size = um.end() - um.start() - len(um.group(1))
+            for ent in result:
+                # If the end is after our start, it is affected
+                if ent.offset + ent.length > um.start():
+                    ent.length -= delim_size
 
-            # Did we find the earliest closing tag?
-            if end != -1:
-
-                # Remove the delimiter from the string
-                message = "".join(
-                    (
-                        message[:i],
-                        message[i + len(delim) : end],
-                        message[end + len(delim) :],
-                    )
+            result.append(
+                MessageEntityTextUrl(
+                    offset=um.start(),
+                    length=len(um.group(1)),
+                    url=del_surrogate(um.group(2)),
                 )
+            )
+            i = um.start() + len(um.group(1))
+            continue
 
-                # Check other affected entities
-                for ent in result:
-                    # If the end is after our start, it is affected
-                    if ent.offset + ent.length > i:
-                        # If the old start is before ours and the old end is after ours, we are fully enclosed
-                        if ent.offset <= i and ent.offset + ent.length >= end + len(
-                            delim
-                        ):
-                            ent.length -= len(delim) * 2
-                        else:
-                            ent.length -= len(delim)
+        # Did we find some delimiter at all?
+        if m is None:
+            break
 
-                # Append the found entity
-                ent = delimiters[delim]
-                if ent == MessageEntityPre:
-                    result.append(ent(i, end - i - len(delim), ""))  # has 'lang'
-                else:
-                    result.append(ent(i, end - i - len(delim)))
+        i = m.start()
+        delim = m.group(m.lastindex)
 
-                # No nested entities inside code blocks
-                if ent in (MessageEntityCode, MessageEntityPre):
-                    i = end - len(delim)
+        # +1 to avoid matching right after (e.g. "****")
+        end = message.find(delim, i + len(delim) + 1)
 
-                continue
+        # Did we find the earliest closing tag?
+        if end != -1:
 
-        elif url_re:
-            m = url_re.match(message, pos=i)
-            if m:
-                # Replace the whole match with only the inline URL text.
-                message = "".join(
-                    (message[: m.start()], m.group(1), message[m.end() :])
+            # Remove the delimiter from the string
+            message = "".join(
+                (
+                    message[:i],
+                    message[i + len(delim) : end],
+                    message[end + len(delim) :],
                 )
+            )
 
-                delim_size = m.end() - m.start() - len(m.group(1))
-                for ent in result:
-                    # If the end is after our start, it is affected
-                    if ent.offset + ent.length > m.start():
-                        ent.length -= delim_size
+            # Check other affected entities
+            for ent in result:
+                # If the end is after our start, it is affected
+                if ent.offset + ent.length > i:
+                    # If the old start is before ours and the old end is after ours, we are fully enclosed
+                    if ent.offset <= i and ent.offset + ent.length >= end + len(
+                        delim
+                    ):
+                        ent.length -= len(delim) * 2
+                    else:
+                        ent.length -= len(delim)
 
-                result.append(
-                    MessageEntityTextUrl(
-                        offset=m.start(),
-                        length=len(m.group(1)),
-                        url=del_surrogate(m.group(2)),
-                    )
-                )
-                i += len(m.group(1))
-                continue
+            # Append the found entity
+            ent = delimiters[delim]
+            if ent == MessageEntityPre:
+                result.append(ent(i, end - i - len(delim), ""))  # has 'lang'
+            else:
+                result.append(ent(i, end - i - len(delim)))
+
+            # No nested entities inside code blocks
+            if ent in (MessageEntityCode, MessageEntityPre):
+                i = end - len(delim)
+
+            continue
 
         i += 1
 

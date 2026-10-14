@@ -888,6 +888,8 @@ class MessageMethods:
                 await client.send_message(chat, 'Hi, future!', schedule=timedelta(minutes=5))
         """
         if file is not None:
+            if rich is not None:
+                raise ValueError('rich messages cannot be combined with a file')
             if isinstance(message, types.Message):
                 formatting_entities = formatting_entities or message.entities
                 message = message.message
@@ -1060,6 +1062,13 @@ class MessageMethods:
         noforwards: bool = None,
         allow_paid_floodskip: bool = None,
         top_msg_id: typing.Optional[int] = None,
+        schedule_repeat_period: typing.Optional[int] = None,
+        send_as: typing.Optional["hints.EntityLike"] = None,
+        quick_reply_shortcut: "typing.Optional[types.TypeInputQuickReplyShortcut]" = None,
+        message_effect_id: typing.Optional[int] = None,
+        video_timestamp: typing.Optional[int] = None,
+        allow_paid_stars: typing.Optional[int] = None,
+        suggested_post: "typing.Optional[types.TypeSuggestedPost]" = None,
         reply_to: "typing.Optional[hints.MessageIDLike]" = None,
     ) -> "typing.Sequence[types.Message]":
         """
@@ -1224,6 +1233,15 @@ class MessageMethods:
                     else types.InputReplyToMessage(
                         utils.get_message_id(reply_to), top_msg_id=top_msg_id)
                 ),
+                schedule_repeat_period=schedule_repeat_period,
+                send_as=(
+                    await self.get_input_entity(send_as) if send_as else None
+                ),
+                quick_reply_shortcut=quick_reply_shortcut,
+                effect=message_effect_id,
+                video_timestamp=video_timestamp,
+                allow_paid_stars=allow_paid_stars,
+                suggested_post=suggested_post,
             )
             result = await self(req)
             sent.extend(self._get_response_message(req, result, entity))
@@ -1784,7 +1802,7 @@ class MessageMethods:
                 _result.append(rc)
         reaction = _result[::-1]
 
-        me = self.heroku_me
+        me = await self.get_me()
         cfg = await self.appconfig
         reactions_limit = int(
             cfg.get("reactions_user_max_premium", 3)

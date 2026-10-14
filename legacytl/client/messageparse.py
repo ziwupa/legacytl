@@ -8,6 +8,9 @@ from ..tl import types
 if typing.TYPE_CHECKING:
     from .telegramclient import TelegramClient
 
+# Matches text URLs that should be turned into mentions (@user, +phone, tg://user?id=…)
+_MENTION_URL_RE = re.compile(r"^@|\+|tg://user\?id=(\d+)")
+
 
 class MessageParseMethods:
 
@@ -97,7 +100,7 @@ class MessageParseMethods:
                 # entities), strip them here rather than fixing the built-in parsers.
                 del msg_entities[i]
             elif isinstance(e, types.MessageEntityTextUrl):
-                m = re.match(r"^@|\+|tg://user\?id=(\d+)", e.url)
+                m = _MENTION_URL_RE.match(e.url)
                 if m:
                     user = int(m.group(1)) if m.group(1) else e.url
                     is_mention = await self._replace_with_mention(msg_entities, i, user)

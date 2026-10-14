@@ -45,7 +45,7 @@ class EntityCache:
                     c.access_hash,
                     (
                         EntityType.COMMUNITY
-                        if isinstance(c, types.Community)
+                        if isinstance(c, (types.Community, types.CommunityForbidden))
                         else (
                             EntityType.MEGAGROUP
                             if getattr(c, "megagroup", None)

@@ -276,9 +276,6 @@ def get_input_channel(entity):
     ):
         return types.InputChannel(entity.id, entity.access_hash or 0)
 
-    if isinstance(entity, (types.Community, types.CommunityForbidden)):
-        return types.InputChannel(entity.id, entity.access_hash or 0)
-
     if isinstance(entity, types.InputPeerChannel):
         return types.InputChannel(entity.channel_id, entity.access_hash)
 
@@ -830,6 +827,9 @@ def get_attributes(
     return list(attr_dict.values()), mime_type
 
 
+_PARSE_MODE_NAMES = {"md": markdown, "markdown": markdown, "htm": html, "html": html}
+
+
 def sanitize_parse_mode(mode):
     """
     Converts the given parse mode into an object with
@@ -837,6 +837,13 @@ def sanitize_parse_mode(mode):
     """
     if not mode:
         return None
+
+    if isinstance(mode, str):
+        # Most common case, check it before the duck-typing fallbacks.
+        try:
+            return _PARSE_MODE_NAMES[mode.lower()]
+        except KeyError:
+            raise ValueError("Unknown parse mode {}".format(mode))
 
     if all(hasattr(mode, x) for x in ("parse", "unparse")) and all(
         callable(x) for x in (mode.parse, mode.unparse)
@@ -851,13 +858,6 @@ def sanitize_parse_mode(mode):
 
         CustomMode.parse = mode
         return CustomMode
-    elif isinstance(mode, str):
-        try:
-            return {"md": markdown, "markdown": markdown, "htm": html, "html": html}[
-                mode.lower()
-            ]
-        except KeyError:
-            raise ValueError("Unknown parse mode {}".format(mode))
     else:
         raise TypeError("Invalid parse mode type {}".format(mode))
 

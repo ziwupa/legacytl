@@ -57,13 +57,25 @@ RESTRICT_IDS = [777000, 489000, 4245000]
 
 
 def _get_forbid_constructors():
-    return _CORE_FORBIDDEN_CONSTRUCTORS | _EXTRA_FORBIDDEN_CONSTRUCTORS
+    # The union is cached because this is queried on every TLObject creation;
+    # `_forbid_extra` invalidates the cache when it adds new ids.
+    global _forbidden_constructors_cache
+    if _forbidden_constructors_cache is None:
+        _forbidden_constructors_cache = (
+            _CORE_FORBIDDEN_CONSTRUCTORS | _EXTRA_FORBIDDEN_CONSTRUCTORS
+        )
+    return _forbidden_constructors_cache
+
+
+_forbidden_constructors_cache = None
 
 
 def _forbid_extra(ids):
     """Add opt-in constructor ids to the forbidden set without touching the
     immutable core. Falsy ids (e.g. an unresolved name) are ignored."""
+    global _forbidden_constructors_cache
     _EXTRA_FORBIDDEN_CONSTRUCTORS.update(i for i in ids if i)
+    _forbidden_constructors_cache = None
 
 
 def _bind_scam_detection_error(error_cls):
@@ -75,6 +87,20 @@ def _scam_detection_error_cls():
     if _ScamDetectionError is None:
         return common.ScamDetectionError
     return _ScamDetectionError
+
+
+_MESSAGE_CONSTRUCTOR_ID = None
+
+
+def _get_message_constructor_id():
+    # Cached to avoid paying for `from .types import Message` on every
+    # TLObject creation (the import is deferred to sidestep a circular import).
+    global _MESSAGE_CONSTRUCTOR_ID
+    if _MESSAGE_CONSTRUCTOR_ID is None:
+        from .types import Message
+
+        _MESSAGE_CONSTRUCTOR_ID = Message.CONSTRUCTOR_ID
+    return _MESSAGE_CONSTRUCTOR_ID
 
 
 def _raise_if_forbidden_constructor(cls):
@@ -268,9 +294,7 @@ class TLObject:
     def __init__(self):
         self._assert_constructor_allowed()
 
-        from .types import Message
-
-        if self.CONSTRUCTOR_ID == Message.CONSTRUCTOR_ID and (
+        if self.CONSTRUCTOR_ID == _get_message_constructor_id() and (
             _from_id := getattr(self, "from_id", None) or getattr(self, "peer_id", None)
         ):
             all_values = _from_id.to_dict().values()

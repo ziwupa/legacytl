@@ -11,6 +11,8 @@ class ChatGetter(abc.ABC):
     methods.
     """
 
+    __slots__ = ()
+
     def __init__(self, chat_peer=None, *, input_chat=None, chat=None, broadcast=None):
         self._chat_peer = chat_peer
         self._input_chat = input_chat
