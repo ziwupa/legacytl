@@ -775,6 +775,13 @@ class TelegramBaseClient(abc.ABC):
 
         await self._disconnect()
 
+        # Extra senders of parallel file transfers
+        from . import _transfer
+        try:
+            await _transfer.close_pool(self)
+        except Exception:
+            self._log[__name__].exception('Failed to close transfer senders')
+
         # Also clean-up all exported senders because we're done with them
         async with self._borrow_sender_lock:
             for state, sender in self._borrowed_senders.values():

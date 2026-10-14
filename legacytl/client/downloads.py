@@ -5,12 +5,14 @@ import pathlib
 import typing
 import inspect
 import asyncio
+import weakref
 
 from ..crypto import AES
 
 from .. import utils, helpers, errors, hints
 from ..requestiter import RequestIter
 from ..tl import TLObject, types, functions
+from . import _transfer
 
 try:
     import aiohttp
@@ -134,41 +136,49 @@ class _DirectDownloadIter(RequestIter):
 
         except errors.FileMigrateError as e:
             self.client._log[__name__].info("File lives in another DC")
+            old, was_exported = self._sender, self._exported
             self._sender = await self.client._borrow_exported_sender(e.new_dc)
             self._exported = True
+            if was_exported and old is not None:
+                await self.client._return_exported_sender(old)
             return await self._request()
 
-        except (
-            errors.FilerefUpgradeNeededError,
-            errors.FileReferenceExpiredError,
-        ) as e:
-            # Only implemented for documents which are the ones that may take that long to download
-            if (
-                not self._msg_data
-                or not isinstance(
-                    self.request.location, types.InputDocumentFileLocation
-                )
-                or self.request.location.thumb_size != ""
-            ):
+        except (errors.FilerefUpgradeNeededError, errors.FileReferenceExpiredError):
+            if not await self._refresh_file_reference():
                 raise
-
-            self.client._log[__name__].info(
-                "File ref expired during download; refetching message"
-            )
-            chat, msg_id = self._msg_data
-            msg = await self.client.get_messages(chat, ids=msg_id)
-
-            if not isinstance(msg.media, types.MessageMediaDocument):
-                raise
-
-            document = msg.media.document
-
-            # Message media may have been edited for something else
-            if document.id != self.request.location.id:
-                raise
-
-            self.request.location.file_reference = document.file_reference
             return await self._request()
+
+    async def _refresh_file_reference(self, error=None):
+        """
+        Re-fetches the message to update the file reference of
+        ``self.request.location`` in place. `False` if it can't.
+        """
+        # Only implemented for documents which are the ones that may take that long to download
+        location = self.request.location
+        if (
+            not self._msg_data
+            or not isinstance(location, types.InputDocumentFileLocation)
+            or location.thumb_size != ""
+        ):
+            return False
+
+        self.client._log[__name__].info(
+            "File ref expired during download; refetching message"
+        )
+        chat, msg_id = self._msg_data
+        msg = await self.client.get_messages(chat, ids=msg_id)
+
+        if not isinstance(getattr(msg, "media", None), types.MessageMediaDocument):
+            return False
+
+        document = msg.media.document
+
+        # Message media may have been edited for something else
+        if document.id != location.id:
+            return False
+
+        location.file_reference = document.file_reference
+        return True
 
     async def close(self):
         if not self._sender:
@@ -243,7 +253,160 @@ class _GenericDownloadIter(_DirectDownloadIter):
             self.request.offset -= self._stride
 
 
+class _ParallelDownloadIter(_DirectDownloadIter):
+    """
+    Like `_DirectDownloadIter` but fetching ``workers`` parts at a time over
+    several connections (see `_transfer`). The first part is fetched alone
+    with the sequential logic (DC migration, CDN redirect, file reference)
+    before any extra connection is opened.
+    """
+
+    async def _init(
+        self,
+        file,
+        dc_id,
+        offset,
+        stride,
+        chunk_size,
+        request_size,
+        file_size,
+        msg_data,
+        cdn_redirect=None,
+        workers=1,
+        parts=None,
+        open_ended=False,
+    ):
+        await super()._init(
+            file,
+            dc_id,
+            offset,
+            stride,
+            chunk_size,
+            request_size,
+            file_size,
+            msg_data,
+            cdn_redirect,
+        )
+        self._workers = workers
+        self._parts = parts
+        self._open_ended = open_ended
+        self._first_offset = offset
+        self._engine = None
+        self._finalizer = None
+        self._tail = False
+        self._started = False
+        self._last_len = 0
+
+    async def _load_next_chunk(self):
+        if self._tail:
+            # Past the expected size: continue sequentially until a short part
+            return await super()._load_next_chunk()
+
+        limit = self.request.limit
+        if not self._started:
+            self._started = True
+            first = await self._request()
+            self.buffer.append(first)
+            self._last_len = len(first)
+            if len(first) < limit or self._parts <= 1:
+                return await self._finish()
+
+            self._start_engine()
+            return
+
+        data = await self._engine.next()
+        if data is None:
+            await self._engine.close(success=True)
+            return await self._finish()
+
+        self.buffer.append(data)
+        self._last_len = len(data)
+
+    async def _finish(self):
+        # A full last part may mean the file is bigger than we were told
+        if self._open_ended and self._last_len >= self.request.limit and self._sender:
+            self._tail = True
+            # Every expected part was received (a short one would have ended it)
+            done = self._parts if self._engine is not None else 1
+            self.request.offset = self._first_offset + done * self._stride
+            if not self.buffer:
+                return await super()._load_next_chunk()
+            return
+
+        self.left = len(self.buffer)
+        await self.close()
+        return True
+
+    def _start_engine(self):
+        client = self.client
+        sender = self._sender
+        dc_id = getattr(sender, "dc_id", None) if self._exported else None
+        if dc_id is None:
+            dc_id = client.session.dc_id
+
+        location = self.request.location
+        first, stride, size = self._first_offset, self._stride, self.request.limit
+
+        def make_request(index):
+            return functions.upload.GetFileRequest(
+                location, offset=first + index * stride, limit=size
+            )
+
+        def parse(result):
+            if isinstance(result, types.upload.FileCdnRedirect):
+                raise _CdnRedirect(result)
+            return result.bytes
+
+        # Workers must not keep ``self`` alive, or the finalizer won't run
+        this = weakref.ref(self)
+
+        async def refresh(error):
+            it = this()
+            return bool(it is not None and await it._refresh_file_reference(error))
+
+        open_sender, close_sender = _transfer.sender_factory(client, dc_id, sender)
+        self._engine = engine = _transfer.ParallelDownload(
+            primary=sender,
+            open_sender=open_sender,
+            close_sender=close_sender,
+            workers=self._workers,
+            make_request=make_request,
+            parse=parse,
+            refresh=refresh,
+            first=1,
+            count=self._parts - 1,
+            part_size=size,
+            flood_sleep_threshold=client.flood_sleep_threshold,
+            log=client._log[__name__],
+        )
+        client._log[__name__].info(
+            "Downloading %d parts of %d bytes in parallel with %d workers from DC %d",
+            self._parts,
+            size,
+            self._workers,
+            dc_id,
+        )
+        engine.start()
+        self._finalizer = weakref.finalize(self, engine.abandon)
+
+    async def close(self):
+        engine, self._engine = self._engine, None
+        if self._finalizer is not None:
+            self._finalizer.detach()
+            self._finalizer = None
+        try:
+            if engine is not None:
+                await engine.close()
+        finally:
+            await super().close()
+
+
 class DownloadMethods:
+
+    #: Default amount of parallel connections for downloads, used when
+    #: ``workers`` is not given (`None` picks it from the file size, ``1``
+    #: always downloads sequentially). Can be set per client instance.
+    download_workers: typing.Optional[int] = None
 
     # region Public methods
 
@@ -372,7 +535,8 @@ class DownloadMethods:
         file: "hints.FileLike" = None,
         *,
         thumb: "typing.Union[int, types.TypePhotoSize]" = None,
-        progress_callback: "hints.ProgressCallback" = None
+        progress_callback: "hints.ProgressCallback" = None,
+        workers: typing.Optional[int] = None
     ) -> typing.Optional[typing.Union[str, bytes]]:
         """
         Downloads the given media from a message object.
@@ -421,6 +585,10 @@ class DownloadMethods:
                     The largest thumbnail may be a video instead of a photo,
                     as they are available since layer 116 and are bigger than
                     any of the photos.
+
+            workers (`int`, optional):
+                How many parts of the file are downloaded at the same time,
+                each over its own connection. See `download_file`.
 
         Returns
             `None` if no media was provided, or if it was Empty. On success
@@ -472,11 +640,11 @@ class DownloadMethods:
 
         if isinstance(media, (types.MessageMediaPhoto, types.Photo)):
             return await self._download_photo(
-                media, file, date, thumb, progress_callback
+                media, file, date, thumb, progress_callback, workers=workers
             )
         elif isinstance(media, (types.MessageMediaDocument, types.Document)):
             return await self._download_document(
-                media, file, date, thumb, progress_callback, msg_data
+                media, file, date, thumb, progress_callback, msg_data, workers=workers
             )
         elif isinstance(media, types.MessageMediaContact) and thumb is None:
             return self._download_contact(media, file)
@@ -496,7 +664,8 @@ class DownloadMethods:
         progress_callback: "hints.ProgressCallback" = None,
         dc_id: int = None,
         key: bytes = None,
-        iv: bytes = None
+        iv: bytes = None,
+        workers: typing.Optional[int] = None
     ) -> typing.Optional[bytes]:
         """
         Low-level method to download files from their input location.
@@ -542,6 +711,22 @@ class DownloadMethods:
             iv ('bytes', optional):
                 In case of an encrypted upload (secret chats) an iv is supplied
 
+            workers (`int`, optional):
+                How many parts are downloaded at the same time, each over its
+                own connection to the DC of the file (they reuse the existing
+                authorization, so no new login happens). By default (`None`)
+                `client.download_workers <download_workers>` is used, and if
+                that's `None` too, files of 10MB or more use 4 workers
+                (8 from 64MB) while smaller ones are downloaded sequentially.
+                ``workers=1`` disables parallel downloads.
+
+                The file is still written in order (at most ``2 * workers``
+                parts are held in memory) and ``progress_callback`` keeps
+                growing monotonically. Parallel downloads need ``file_size``
+                (`download_media` knows it) and aren't used for encrypted
+                (``key``/``iv``) nor CDN files. Without ``part_size_kb``,
+                parallel downloads use parts of 512KB.
+
 
         Example
             .. code-block:: python
@@ -559,6 +744,7 @@ class DownloadMethods:
             dc_id=dc_id,
             key=key,
             iv=iv,
+            workers=workers,
         )
 
     async def _download_file(
@@ -573,10 +759,28 @@ class DownloadMethods:
         key: bytes = None,
         iv: bytes = None,
         msg_data: tuple = None,
-        cdn_redirect: types.upload.FileCdnRedirect = None
+        cdn_redirect: types.upload.FileCdnRedirect = None,
+        workers: typing.Optional[int] = None
     ) -> typing.Optional[bytes]:
+        parallel = 1
+        if file_size and cdn_redirect is None and not (key and iv):
+            parallel = _transfer.resolve_workers(
+                workers,
+                self.download_workers,
+                file_size,
+                int(part_size_kb * 1024) if part_size_kb else _transfer.PART_SIZE,
+            )
+            if (
+                parallel > 1
+                and part_size_kb
+                and not _transfer.valid_download_part_size(int(part_size_kb * 1024))
+            ):
+                parallel = 1
+
         if not part_size_kb:
-            if not file_size:
+            if parallel > 1:
+                part_size_kb = _transfer.PART_SIZE // 1024
+            elif not file_size:
                 part_size_kb = 64  # Reasonable default
             else:
                 part_size_kb = utils.get_appropriated_part_size(file_size)
@@ -599,23 +803,40 @@ class DownloadMethods:
             f = file
 
         try:
-            async for chunk in self._iter_download(
-                input_location,
-                request_size=part_size,
-                dc_id=dc_id,
-                msg_data=msg_data,
-                cdn_redirect=cdn_redirect,
-            ):
-                if iv and key:
-                    chunk = AES.decrypt_ige(chunk, key, iv)
-                r = f.write(chunk)
-                if inspect.isawaitable(r):
-                    await r
-
-                if progress_callback:
-                    r = progress_callback(f.tell(), file_size)
+            if parallel > 1:
+                it = self._iter_download(
+                    input_location,
+                    request_size=part_size,
+                    dc_id=dc_id,
+                    msg_data=msg_data,
+                    file_size=file_size,
+                    workers=parallel,
+                    _open_ended=True,
+                )
+            else:
+                it = self._iter_download(
+                    input_location,
+                    request_size=part_size,
+                    dc_id=dc_id,
+                    msg_data=msg_data,
+                    cdn_redirect=cdn_redirect,
+                    workers=1,
+                )
+            try:
+                async for chunk in it:
+                    if iv and key:
+                        chunk = AES.decrypt_ige(chunk, key, iv)
+                    r = f.write(chunk)
                     if inspect.isawaitable(r):
                         await r
+
+                    if progress_callback:
+                        r = progress_callback(f.tell(), file_size)
+                        if inspect.isawaitable(r):
+                            await r
+            finally:
+                # Also on errors and cancellation, so connections are released
+                await it.close()
 
             # Not all IO objects have flush (see #1227)
             if callable(getattr(f, "flush", None)):
@@ -653,7 +874,8 @@ class DownloadMethods:
         chunk_size: int = None,
         request_size: int = MAX_CHUNK_SIZE,
         file_size: int = None,
-        dc_id: int = None
+        dc_id: int = None,
+        workers: typing.Optional[int] = None
     ):
         """
         Iterates over a file download, yielding chunks of the file.
@@ -714,6 +936,16 @@ class DownloadMethods:
                 The data center the library should connect to in order
                 to download the file. You shouldn't worry about this.
 
+            workers (`int`, optional):
+                How many chunks are fetched at the same time, each over its
+                own connection (see `download_file`). Chunks are still yielded
+                in order and at most ``2 * workers`` are fetched ahead. Only
+                used for "direct" iterations (``chunk_size == request_size ==
+                stride``, ``offset`` multiple of ``request_size``) whose size
+                is known; ``workers=1`` keeps the sequential behaviour. If you
+                stop iterating early, ``await stream.close()`` releases the
+                connections right away.
+
         Yields
 
             `bytes` objects representing the chunks of the file if the
@@ -747,6 +979,7 @@ class DownloadMethods:
             request_size=request_size,
             file_size=file_size,
             dc_id=dc_id,
+            workers=workers,
         )
 
     def _iter_download(
@@ -761,7 +994,9 @@ class DownloadMethods:
         file_size: int = None,
         dc_id: int = None,
         msg_data: tuple = None,
-        cdn_redirect: types.upload.FileCdnRedirect = None
+        cdn_redirect: types.upload.FileCdnRedirect = None,
+        workers: typing.Optional[int] = None,
+        _open_ended: bool = False
     ):
         info = utils._get_file_info(file)
         if info.dc_id is not None:
@@ -775,6 +1010,7 @@ class DownloadMethods:
         if chunk_size is None:
             chunk_size = request_size
 
+        user_limit = limit
         if limit is None and file_size is not None:
             limit = (file_size + chunk_size - 1) // chunk_size
 
@@ -788,6 +1024,47 @@ class DownloadMethods:
             request_size = MIN_CHUNK_SIZE
         elif request_size > MAX_CHUNK_SIZE:
             request_size = MAX_CHUNK_SIZE
+
+        parallel = 1
+        if (
+            cdn_redirect is None
+            and file_size
+            and limit
+            and chunk_size == request_size == stride
+            and _transfer.valid_download_part_size(request_size, offset)
+        ):
+            span = min(limit * stride, max(file_size - offset, 0))
+            parallel = _transfer.resolve_workers(
+                workers, self.download_workers, span, request_size
+            )
+
+        if parallel > 1:
+            span = min(limit * stride, max(file_size - offset, 0))
+            parts = (span + request_size - 1) // request_size
+            self._log[__name__].info(
+                "Starting parallel file download in chunks of "
+                "%d at %d with %d workers",
+                request_size,
+                offset,
+                parallel,
+            )
+            return _ParallelDownloadIter(
+                self,
+                # The tail check after the expected size needs no limit
+                None if _open_ended and user_limit is None else parts,
+                file=file,
+                dc_id=dc_id,
+                offset=offset,
+                stride=stride,
+                chunk_size=chunk_size,
+                request_size=request_size,
+                file_size=file_size,
+                msg_data=msg_data,
+                cdn_redirect=None,
+                workers=parallel,
+                parts=parts,
+                open_ended=_open_ended and user_limit is None,
+            )
 
         if (
             chunk_size == request_size
@@ -903,7 +1180,7 @@ class DownloadMethods:
         return file
 
     async def _download_photo(
-        self: "TelegramClient", photo, file, date, thumb, progress_callback
+        self: "TelegramClient", photo, file, date, thumb, progress_callback, workers=None
     ):
         """Specialized version of .download_media() for photos"""
         # Determine the photo and its largest size
@@ -940,6 +1217,7 @@ class DownloadMethods:
             file,
             file_size=file_size,
             progress_callback=progress_callback,
+            workers=workers,
         )
         return result if file is bytes else file
 
@@ -966,7 +1244,7 @@ class DownloadMethods:
         return kind, possible_names
 
     async def _download_document(
-        self, document, file, date, thumb, progress_callback, msg_data
+        self, document, file, date, thumb, progress_callback, msg_data, workers=None
     ):
         """Specialized version of .download_media() for documents."""
         if isinstance(document, types.MessageMediaDocument):
@@ -1004,6 +1282,7 @@ class DownloadMethods:
             file_size=size.size if size else document.size,
             progress_callback=progress_callback,
             msg_data=msg_data,
+            workers=workers,
         )
 
         return result if file is bytes else file
@@ -1131,7 +1410,7 @@ class DownloadMethods:
                     else next(
                         x  # basename to prevent path traversal (#4713)
                         for x in map(os.path.basename, filter(None, possible_names))
-                        if not isreserved(x)
+                        if x and not isreserved(x)
                     )
                 )
             except StopIteration:
